@@ -1293,7 +1293,7 @@ const adminHtml = `<!doctype html>
       ::-webkit-scrollbar-track{background:transparent}
       ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px}
       html[data-theme="dark"] ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15)}
-      .wrap{width:100%;max-width:1120px;margin:0 auto;padding:22px 18px 40px}
+      .wrap{width:100%;max-width:1120px;margin:0 auto;padding:22px 18px 40px;padding-left:max(18px, env(safe-area-inset-left));padding-right:max(18px, env(safe-area-inset-right));padding-top:max(22px, env(safe-area-inset-top));padding-bottom:max(40px, env(safe-area-inset-bottom))}
       .top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,520px);align-items:stretch;gap:14px;margin-bottom:14px}
       @media(max-width:940px){.top{grid-template-columns:1fr}}
       .card{background:var(--card);border:var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:var(--pad)}
@@ -1307,6 +1307,16 @@ const adminHtml = `<!doctype html>
         .tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
         .quickActions{grid-template-columns:repeat(2,minmax(0,1fr))}
         .top .card .hint{-webkit-line-clamp:4}
+        table{border-spacing:0 10px}
+        table tr:first-child{display:none}
+        .tr{display:block}
+        .tr td{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 12px}
+        .tr td[colspan]{display:block}
+        .tr td::before{content:attr(data-k);font-weight:900;color:var(--muted);flex:0 0 auto;max-width:46%}
+        .tr td[colspan]::before{content:""}
+        .tr td:first-child{border-top-left-radius:18px;border-top-right-radius:18px;border-bottom-left-radius:0}
+        .tr td:last-child{border-bottom-left-radius:18px;border-bottom-right-radius:18px;border-top-right-radius:0}
+        .tr td .row{width:100%;justify-content:flex-end}
       }
       .tab,.quickLink,.quickBtn{border:var(--border);border-radius:18px;padding:11px 12px;background:var(--paper);box-shadow:0 8px 18px rgba(15,23,42,.1);font-weight:900;font-size:12px;color:var(--ink);min-height:48px}
       .tab{display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;user-select:none}
@@ -1366,7 +1376,7 @@ const adminHtml = `<!doctype html>
       th{color:var(--muted)}
       input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
       select option{color:var(--ink);background:var(--card)}
-      .scrollBox{margin-top:10px;overflow:auto;max-height:var(--listH);overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+      .scrollBox{margin-top:10px;overflow:auto;max-height:var(--listH);overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
       .stat{border:var(--border);border-radius:var(--radius);padding:12px;background:var(--card);box-shadow:var(--shadow-md);flex:1 1 160px;min-width:0}
       .drop{border:var(--border);border-radius:var(--radius);padding:12px;background:var(--paper);box-shadow:var(--shadow-md);min-width:0;width:100%}
       html[data-theme="dark"]{
@@ -1721,14 +1731,14 @@ const adminHtml = `<!doctype html>
           const exp = b.expiresAt ? fmtTs(b.expiresAt) : '永久'
           const by = b.createdBy === 'auto' ? 'auto' : 'manual'
           return '<tr class="tr">' +
-            '<td>' + renderPick('data-ban="1" data-type="'+esc(b.type)+'" data-val="'+esc(b.value)+'"', '选择封禁', 'compact') + '</td>' +
-            '<td class="mono">' + esc(b.type) + '</td>' +
-            '<td class="mono">' + esc(b.value) + '</td>' +
-            '<td>' + esc(b.reason || '') + '</td>' +
-            '<td class="mono">' + esc(by) + '</td>' +
-            '<td class="mono">' + esc(created) + '</td>' +
-            '<td class="mono">' + esc(exp) + '</td>' +
-            '<td><button data-act="unban" data-type="'+esc(b.type)+'" data-val="'+esc(b.value)+'">删除</button></td>' +
+            '<td data-k="选">' + renderPick('data-ban="1" data-type="'+esc(b.type)+'" data-val="'+esc(b.value)+'"', '选择封禁', 'compact') + '</td>' +
+            '<td data-k="类型" class="mono">' + esc(b.type) + '</td>' +
+            '<td data-k="值" class="mono">' + esc(b.value) + '</td>' +
+            '<td data-k="原因">' + esc(b.reason || '') + '</td>' +
+            '<td data-k="来源" class="mono">' + esc(by) + '</td>' +
+            '<td data-k="封禁" class="mono">' + esc(created) + '</td>' +
+            '<td data-k="解封" class="mono">' + esc(exp) + '</td>' +
+            '<td data-k="操作"><button data-act="unban" data-type="'+esc(b.type)+'" data-val="'+esc(b.value)+'">删除</button></td>' +
           '</tr>'
         }).join('')
         $('banTable').innerHTML = '<tr><th>' + renderPick('id="banAll"', '全选封禁', 'compact') + '</th><th>类型</th><th>值</th><th>原因</th><th>来源</th><th>封禁时间</th><th>解封时间</th><th></th></tr>' + rows
@@ -1737,10 +1747,10 @@ const adminHtml = `<!doctype html>
       const renderTopIp = (list) => {
         const rows = list.map((x) =>
           '<tr class="tr">' +
-          '<td>' + renderPick('data-topip="1" data-ip="'+esc(x.ip)+'"', '选择 IP', 'compact') + '</td>' +
-          '<td class="mono">' + esc(x.ip) + '</td>' +
-          '<td class="mono">req=' + esc(x.requests) + ' scan=' + esc(x.scanHits) + '</td>' +
-          '<td class="row" style="gap:10px;justify-content:flex-end"><button data-act="banip" data-ip="'+esc(x.ip)+'">封禁</button><button data-act="delip" data-ip="'+esc(x.ip)+'">删除</button></td>' +
+          '<td data-k="选">' + renderPick('data-topip="1" data-ip="'+esc(x.ip)+'"', '选择 IP', 'compact') + '</td>' +
+          '<td data-k="IP" class="mono">' + esc(x.ip) + '</td>' +
+          '<td data-k="统计" class="mono">req=' + esc(x.requests) + ' scan=' + esc(x.scanHits) + '</td>' +
+          '<td data-k="操作" class="row" style="gap:10px;justify-content:flex-end"><button data-act="banip" data-ip="'+esc(x.ip)+'">封禁</button><button data-act="delip" data-ip="'+esc(x.ip)+'">删除</button></td>' +
           '</tr>'
         ).join('')
         $('topIp').innerHTML = '<tr><th>' + renderPick('id="topIpAll"', '全选 IP', 'compact') + '</th><th>IP</th><th>统计</th><th></th></tr>' + rows
@@ -1749,10 +1759,10 @@ const adminHtml = `<!doctype html>
       const renderTopDomain = (list) => {
         const rows = list.map((x) =>
           '<tr class="tr">' +
-          '<td>' + renderPick('data-topdomain="1" data-domain="'+esc(x.domain)+'"', '选择域名', 'compact') + '</td>' +
-          '<td class="mono">' + esc(x.domain) + '</td>' +
-          '<td class="mono">req=' + esc(x.requests) + '</td>' +
-          '<td class="row" style="gap:10px;justify-content:flex-end"><button data-act="bandomain" data-domain="'+esc(x.domain)+'">封禁</button><button data-act="deldomain" data-domain="'+esc(x.domain)+'">删除</button></td>' +
+          '<td data-k="选">' + renderPick('data-topdomain="1" data-domain="'+esc(x.domain)+'"', '选择域名', 'compact') + '</td>' +
+          '<td data-k="域名" class="mono">' + esc(x.domain) + '</td>' +
+          '<td data-k="统计" class="mono">req=' + esc(x.requests) + '</td>' +
+          '<td data-k="操作" class="row" style="gap:10px;justify-content:flex-end"><button data-act="bandomain" data-domain="'+esc(x.domain)+'">封禁</button><button data-act="deldomain" data-domain="'+esc(x.domain)+'">删除</button></td>' +
           '</tr>'
         ).join('')
         $('topDomain').innerHTML = '<tr><th>' + renderPick('id="topDomainAll"', '全选域名', 'compact') + '</th><th>域名</th><th>统计</th><th></th></tr>' + rows
@@ -1761,14 +1771,14 @@ const adminHtml = `<!doctype html>
       const renderEvents = (events) => {
         const rows = events.slice().reverse().slice(0, 120).map((e) =>
           '<tr class="tr">' +
-          '<td>' + (e.id ? renderPick('data-event="1" data-id="'+esc(e.id)+'"', '选择事件', 'compact') : '') + '</td>' +
-          '<td class="mono">' + esc(fmtTs(e.ts)) + '</td>' +
-          '<td class="mono">' + esc(e.kind) + '</td>' +
-          '<td class="mono">' + esc(e.ip || '') + '</td>' +
-          '<td class="mono">' + esc(e.domain || '') + '</td>' +
-          '<td class="mono">' + esc(e.path || '') + '</td>' +
-          '<td>' + esc(e.detail || '') + '</td>' +
-          '<td>' + (e.id ? '<button data-act="delevent" data-id="'+esc(e.id)+'">删除</button>' : '') + '</td>' +
+          '<td data-k="选">' + (e.id ? renderPick('data-event="1" data-id="'+esc(e.id)+'"', '选择事件', 'compact') : '') + '</td>' +
+          '<td data-k="时间" class="mono">' + esc(fmtTs(e.ts)) + '</td>' +
+          '<td data-k="类型" class="mono">' + esc(e.kind) + '</td>' +
+          '<td data-k="IP" class="mono">' + esc(e.ip || '') + '</td>' +
+          '<td data-k="域名" class="mono">' + esc(e.domain || '') + '</td>' +
+          '<td data-k="路径" class="mono">' + esc(e.path || '') + '</td>' +
+          '<td data-k="详情">' + esc(e.detail || '') + '</td>' +
+          '<td data-k="操作">' + (e.id ? '<button data-act="delevent" data-id="'+esc(e.id)+'">删除</button>' : '') + '</td>' +
           '</tr>'
         ).join('')
         $('eventTable').innerHTML = '<tr><th>' + renderPick('id="eventAll"', '全选事件', 'compact') + '</th><th>时间</th><th>类型</th><th>IP</th><th>域名</th><th>路径</th><th>详情</th><th></th></tr>' + rows
@@ -1829,7 +1839,7 @@ const adminHtml = `<!doctype html>
           const ip = esc(x.ip || '')
           const req = Number(x.requests || 0) || 0
           const bytesFmt = fmtBytes(x.bytes)
-          return '<tr class="tr"><td>' + renderPick('data-tip="1" data-ip="'+ip+'"', '选择', 'compact') + '</td><td class="mono">' + ip + '</td><td class="mono">' + bytesFmt + '</td><td class="mono">' + req + '</td></tr>'
+          return '<tr class="tr"><td data-k="选">' + renderPick('data-tip="1" data-ip="'+ip+'"', '选择', 'compact') + '</td><td data-k="IP" class="mono">' + ip + '</td><td data-k="流量" class="mono">' + bytesFmt + '</td><td data-k="请求" class="mono">' + req + '</td></tr>'
         }).join('') : ''
         $('trafficIpTable').innerHTML = '<tr><th>' + renderPick('id="tipAll"', '全选', 'compact') + '</th><th>IP</th><th>流量</th><th>请求数</th></tr>' + (ipRows || '<tr class="tr"><td colspan="4" class="hint">暂无数据</td></tr>')
 
@@ -1838,7 +1848,7 @@ const adminHtml = `<!doctype html>
           const domain = esc(x.domain || '')
           const req = Number(x.requests || 0) || 0
           const bytesFmtD = fmtBytes(x.bytes)
-          return '<tr class="tr"><td>' + renderPick('data-tdomain="1" data-domain="'+domain+'"', '选择', 'compact') + '</td><td class="mono">' + domain + '</td><td class="mono">' + bytesFmtD + '</td><td class="mono">' + req + '</td></tr>'
+          return '<tr class="tr"><td data-k="选">' + renderPick('data-tdomain="1" data-domain="'+domain+'"', '选择', 'compact') + '</td><td data-k="域名" class="mono">' + domain + '</td><td data-k="流量" class="mono">' + bytesFmtD + '</td><td data-k="请求" class="mono">' + req + '</td></tr>'
         }).join('') : ''
         $('trafficDomainTable').innerHTML = '<tr><th>' + renderPick('id="tdomainAll"', '全选', 'compact') + '</th><th>域名</th><th>流量</th><th>请求数</th></tr>' + (domainRows || '<tr class="tr"><td colspan="4" class="hint">暂无数据</td></tr>')
       }
@@ -2278,7 +2288,7 @@ export const createNodeApp = (deps: { adminStore: AdminDbStore; auth: AuthDb }) 
   app.use('*', async (c: Context, next) => {
     const u = new URL(c.req.url)
     const path = u.pathname
-    if (path.startsWith('/admin')) return next()
+    if (path === '/admin' || path.startsWith('/admin/')) return next()
     if (
       path === '/' ||
       path === '/healthz' ||

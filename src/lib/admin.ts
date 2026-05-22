@@ -141,7 +141,17 @@ const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(ma
 const normalizeIp = (ip: string) => {
   const s = String(ip ?? '').trim()
   if (!s) return ''
-  const cleaned = s.split(',')[0]?.trim() ?? ''
+  let cleaned = s.split(',')[0]?.trim() ?? ''
+  if (!cleaned) return ''
+  cleaned = cleaned.replace(/^"+|"+$/g, '')
+  if (cleaned.toLowerCase() === 'unknown') return ''
+  if (cleaned.startsWith('[')) {
+    const end = cleaned.indexOf(']')
+    if (end > 1) cleaned = cleaned.slice(1, end)
+  } else {
+    const m = cleaned.match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/)
+    if (m) cleaned = m[1]
+  }
   if (cleaned.startsWith('::ffff:')) return cleaned.slice('::ffff:'.length)
   return cleaned
 }
@@ -166,8 +176,28 @@ export const getClientIp = (req: Request) => {
   const h = req.headers
   return (
     normalizeIp(h.get('cf-connecting-ip') ?? '') ||
+    normalizeIp(h.get('fly-client-ip') ?? '') ||
+    normalizeIp(h.get('x-client-ip') ?? '') ||
     normalizeIp(h.get('x-real-ip') ?? '') ||
-    normalizeIp(h.get('x-forwarded-for') ?? '')
+    normalizeIp(h.get('x-forwarded-for') ?? '') ||
+    (() => {
+      const raw = String(h.get('forwarded') ?? '').trim()
+      if (!raw) return ''
+      const first = raw.split(',')[0]?.trim() ?? ''
+      if (!first) return ''
+      const parts = first.split(';').map((x) => x.trim()).filter(Boolean)
+      for (const p of parts) {
+        const idx = p.indexOf('=')
+        if (idx <= 0) continue
+        const k = p.slice(0, idx).trim().toLowerCase()
+        if (k !== 'for') continue
+        let v = p.slice(idx + 1).trim()
+        v = v.replace(/^"+|"+$/g, '')
+        if (!v || v.startsWith('_')) return ''
+        return normalizeIp(v)
+      }
+      return ''
+    })()
   )
 }
 
