@@ -1,0 +1,10 @@
+services:
+  jsd:
+    build: .
+    ports:
+      - "${PORT:-5011}:${PORT:-5011}"
+    environment:
+      - PORT=${PORT:-5011}
+      - DB_PATH=/app/data/app.db
+    volumes:
+      - "./data:/app/data"
