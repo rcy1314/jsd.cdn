@@ -1287,13 +1287,13 @@ const adminHtml = `<!doctype html>
       @media(max-width:520px){:root{--listH:260px}}
       *{box-sizing:border-box}
       html,body{min-height:100vh}
-      body{margin:0;font-family:var(--sans);color:var(--ink);overflow-x:hidden;background:#f5f0e8;min-height:100vh;min-height:100dvh}
+      body{margin:0;font-family:var(--sans);color:var(--ink);overflow-x:hidden;background:#f5f0e8;min-height:100vh;min-height:100dvh;overscroll-behavior-y:none}
       html[data-theme="dark"] body{background:#0f172a}
       ::-webkit-scrollbar{width:8px;height:8px}
       ::-webkit-scrollbar-track{background:transparent}
       ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:4px}
       html[data-theme="dark"] ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15)}
-      .wrap{width:100%;max-width:1120px;margin:0 auto;padding:22px 18px 40px;padding-left:max(18px, env(safe-area-inset-left));padding-right:max(18px, env(safe-area-inset-right));padding-top:max(22px, env(safe-area-inset-top));padding-bottom:max(40px, env(safe-area-inset-bottom))}
+      .wrap{width:100%;max-width:1120px;margin:0 auto;padding:22px 18px 0;padding-left:max(18px, env(safe-area-inset-left));padding-right:max(18px, env(safe-area-inset-right));padding-top:max(22px, env(safe-area-inset-top));padding-bottom:env(safe-area-inset-bottom)}
       .top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,520px);align-items:stretch;gap:14px;margin-bottom:14px}
       @media(max-width:940px){.top{grid-template-columns:1fr}}
       .card{background:var(--card);border:var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:var(--pad)}
@@ -1304,7 +1304,6 @@ const adminHtml = `<!doctype html>
       .tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;min-width:0}
       .quickActions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;min-width:0}
       @media (max-width: 520px){
-        .wrap{padding-bottom:max(22px, env(safe-area-inset-bottom))}
         .tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
         .quickActions{grid-template-columns:repeat(2,minmax(0,1fr))}
         .top .card .hint{-webkit-line-clamp:4}
@@ -1338,6 +1337,7 @@ const adminHtml = `<!doctype html>
       .topLead{max-width:620px}
       .grid{display:grid;grid-template-columns:1fr;gap:14px}
       .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+      .row > div{min-height:0}
       .formRow{justify-content:flex-start}
       .formRow input:not([type="file"]),.formRow select{flex:0 1 220px}
       .formRow .switch{flex:1 1 220px}
@@ -1391,7 +1391,7 @@ const adminHtml = `<!doctype html>
       th{color:var(--muted)}
       input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
       select option{color:var(--ink);background:var(--card)}
-      .scrollBox{margin-top:10px;overflow:auto;max-height:var(--listH);overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+      .scrollBox{margin-top:10px;overflow:auto;max-height:var(--listH);overscroll-behavior:none;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;contain:layout paint}
       .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.38);backdrop-filter:saturate(120%) blur(6px);z-index:9999}
       .modalCard{background:var(--card);border:var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:16px;max-width:680px;width:100%;max-height:min(84vh,720px);overflow:auto}
       .kv{display:grid;gap:10px;margin-top:12px}
@@ -1691,7 +1691,6 @@ const adminHtml = `<!doctype html>
           <div><b>版本信息</b></div>
           <button id="versionClose" type="button">关闭</button>
         </div>
-        <div class="hint">Docker 运行时可通过环境变量注入：APP_VERSION / APP_COMMIT / APP_IMAGE / BUILD_TIME。</div>
         <div id="versionBody" class="kv"></div>
       </div>
     </div>
@@ -1761,16 +1760,17 @@ const adminHtml = `<!doctype html>
 
       const renderKvRows = (data) => {
         const version = String((data && data.appVersion) || '').trim()
-        const image = String((data && data.appImage) || '').trim()
-        const commit = String((data && data.appCommit) || '').trim()
         const buildTimeRaw = String((data && data.buildTime) || '').trim()
         const buildTimeFmt = buildTimeRaw ? fmtTs(buildTimeRaw) : ''
+        const nodeVersion = String((data && data.nodeVersion) || '').trim()
+        const platform = String((data && data.platform) || '').trim()
+        const arch = String((data && data.arch) || '').trim()
+        const runtime = [nodeVersion ? ('Node ' + nodeVersion.replace(/^v/, '')) : '', platform && arch ? (platform + '/' + arch) : ''].filter(Boolean).join(' · ')
 
         const rows = [
           ['版本', version, ''],
-          ['镜像', image, ''],
           ['发布时间', buildTimeFmt || buildTimeRaw, buildTimeFmt && buildTimeRaw && buildTimeFmt !== buildTimeRaw ? buildTimeRaw : ''],
-          ['Commit', commit ? commit.slice(0, 7) : '', commit && commit.length > 7 ? commit : '']
+          ['运行环境', runtime, '']
         ]
           .map(([k, main, sub]) => [k, String(main || '').trim(), String(sub || '').trim()])
           .filter((x) => x[1])
@@ -1797,7 +1797,7 @@ const adminHtml = `<!doctype html>
         const modal = $('versionModal')
         const applyBtn = (data) => {
           const v = String((data && data.appVersion) || '').trim()
-          if (txt) txt.textContent = v ? ('版本号：' + v) : ''
+          if (txt) txt.textContent = v ? ('版本号：' + v) : '版本'
           btn.classList.toggle('versionText', !!v)
         }
         if (!btn || !close || !modal) return
@@ -2622,9 +2622,10 @@ export const createNodeApp = (deps: { adminStore: AdminDbStore; auth: AuthDb }) 
     const env = process.env
     return c.json({
       appVersion: String(env.APP_VERSION || ''),
-      appCommit: String(env.APP_COMMIT || ''),
-      appImage: String(env.APP_IMAGE || ''),
-      buildTime: String(env.BUILD_TIME || '')
+      buildTime: String(env.BUILD_TIME || ''),
+      nodeVersion: String(process.version || ''),
+      platform: String(process.platform || ''),
+      arch: String(process.arch || '')
     })
   })
 

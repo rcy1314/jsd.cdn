@@ -162,6 +162,19 @@ const migrate = (db: any) => {
       requests INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY(domain, bucket_start)
     );
+
+    CREATE TABLE IF NOT EXISTS top_ip_stats (
+      ip TEXT PRIMARY KEY,
+      window_start INTEGER NOT NULL,
+      requests INTEGER NOT NULL DEFAULT 0,
+      scan_hits INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS top_domain_stats (
+      domain TEXT PRIMARY KEY,
+      window_start INTEGER NOT NULL,
+      requests INTEGER NOT NULL DEFAULT 0
+    );
   `)
 
   const alters = [

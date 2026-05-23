@@ -167,6 +167,9 @@ export class AdminDbStore {
   private trafficByHour = new Map<number, TrafficBucketStat>()
   private clientTrafficByHour = new Map<string, IpTrafficByHourStat | DomainTrafficByHourStat>()
   private lastCleanupAt = 0
+  private dirtyTopIps = new Set<string>()
+  private dirtyTopDomains = new Set<string>()
+  private flushTopTimer: any = null
 
   constructor(db: AppDb) {
     this.db = db
@@ -234,6 +237,60 @@ export class AdminDbStore {
           this.db.prepare('DELETE FROM traffic_ip').run()
           this.db.prepare('DELETE FROM traffic_domain').run()
         } catch {}
+      }
+    } catch {}
+
+    try {
+      const settings = this.getSettings()
+      const topKeepDays = clamp(Number(settings.cleanup?.topRetentionDays ?? 7), 1, 365)
+      const cutoff = now() - topKeepDays * 24 * 60 * 60 * 1000
+      const ipRows = this.db.prepare('SELECT ip, window_start, requests, scan_hits FROM top_ip_stats WHERE window_start >= ?').all(cutoff) as any[]
+      for (const r of ipRows) {
+        const ip = normalizeIp(String(r.ip ?? ''))
+        const windowStart = Number(r.window_start)
+        if (!ip || !Number.isFinite(windowStart)) continue
+        this.ipStats.set(ip, { windowStart, requests: Number(r.requests) || 0, scanHits: Number(r.scan_hits) || 0 })
+      }
+      const domainRows = this.db.prepare('SELECT domain, window_start, requests FROM top_domain_stats WHERE window_start >= ?').all(cutoff) as any[]
+      for (const r of domainRows) {
+        const domain = String(r.domain ?? '').trim().toLowerCase()
+        const windowStart = Number(r.window_start)
+        if (!domain || !Number.isFinite(windowStart)) continue
+        this.domainStats.set(domain, { windowStart, requests: Number(r.requests) || 0 })
+      }
+    } catch {}
+  }
+
+  private scheduleTopFlush() {
+    if (this.flushTopTimer) return
+    this.flushTopTimer = setTimeout(() => {
+      this.flushTopTimer = null
+      this.flushTopStats()
+    }, 800)
+  }
+
+  private flushTopStats() {
+    const ips = Array.from(this.dirtyTopIps)
+    const domains = Array.from(this.dirtyTopDomains)
+    this.dirtyTopIps.clear()
+    this.dirtyTopDomains.clear()
+    if (!ips.length && !domains.length) return
+    try {
+      const upsertIp = this.db.prepare(
+        'INSERT INTO top_ip_stats (ip, window_start, requests, scan_hits) VALUES (?, ?, ?, ?) ON CONFLICT(ip) DO UPDATE SET window_start=excluded.window_start, requests=excluded.requests, scan_hits=excluded.scan_hits'
+      )
+      for (const ip of ips) {
+        const st = this.ipStats.get(ip)
+        if (!st) continue
+        upsertIp.run(ip, st.windowStart, st.requests, st.scanHits)
+      }
+      const upsertDomain = this.db.prepare(
+        'INSERT INTO top_domain_stats (domain, window_start, requests) VALUES (?, ?, ?) ON CONFLICT(domain) DO UPDATE SET window_start=excluded.window_start, requests=excluded.requests'
+      )
+      for (const domain of domains) {
+        const st = this.domainStats.get(domain)
+        if (!st) continue
+        upsertDomain.run(domain, st.windowStart, st.requests)
       }
     } catch {}
   }
@@ -383,12 +440,24 @@ export class AdminDbStore {
       this.events = this.events.filter((e) => Number(e.ts) >= eventCutoff)
 
       const topCutoff = ts - clamp(Number(settings.cleanup.topRetentionDays), 1, 365) * 24 * 60 * 60 * 1000
+      const delIps: string[] = []
       for (const [ip, st] of this.ipStats.entries()) {
-        if (!st || typeof st.windowStart !== 'number' || st.windowStart < topCutoff) this.ipStats.delete(ip)
+        if (!st || typeof st.windowStart !== 'number' || st.windowStart < topCutoff) {
+          this.ipStats.delete(ip)
+          if (ip) delIps.push(ip)
+        }
       }
+      const delDomains: string[] = []
       for (const [domain, st] of this.domainStats.entries()) {
-        if (!st || typeof st.windowStart !== 'number' || st.windowStart < topCutoff) this.domainStats.delete(domain)
+        if (!st || typeof st.windowStart !== 'number' || st.windowStart < topCutoff) {
+          this.domainStats.delete(domain)
+          if (domain) delDomains.push(domain)
+        }
       }
+      try { this.db.prepare('DELETE FROM top_ip_stats WHERE window_start < ?').run(topCutoff) } catch {}
+      try { this.db.prepare('DELETE FROM top_domain_stats WHERE window_start < ?').run(topCutoff) } catch {}
+      for (const ip of delIps) this.dirtyTopIps.delete(ip)
+      for (const d of delDomains) this.dirtyTopDomains.delete(d)
     }
 
     if (trafficEnabled) {
@@ -716,7 +785,11 @@ export class AdminDbStore {
     await this.init()
     const list = Array.isArray(ips) ? ips.map((s) => normalizeIp(String(s))).filter(Boolean) : []
     const unique = Array.from(new Set(list)).slice(0, 200)
-    for (const ip of unique) this.ipStats.delete(ip)
+    for (const ip of unique) {
+      this.ipStats.delete(ip)
+      this.dirtyTopIps.delete(ip)
+      try { this.db.prepare('DELETE FROM top_ip_stats WHERE ip=?').run(ip) } catch {}
+    }
     this.pushEvent({ ts: now(), kind: 'settings_update', detail: `top_ip_clear:${unique.length}` })
     return { ok: true as const, cleared: unique.length }
   }
@@ -725,7 +798,11 @@ export class AdminDbStore {
     await this.init()
     const list = Array.isArray(domains) ? domains.map((s) => String(s ?? '').trim().toLowerCase()).filter(Boolean) : []
     const unique = Array.from(new Set(list)).slice(0, 200)
-    for (const d of unique) this.domainStats.delete(d)
+    for (const d of unique) {
+      this.domainStats.delete(d)
+      this.dirtyTopDomains.delete(d)
+      try { this.db.prepare('DELETE FROM top_domain_stats WHERE domain=?').run(d) } catch {}
+    }
     this.pushEvent({ ts: now(), kind: 'settings_update', detail: `top_domain_clear:${unique.length}` })
     return { ok: true as const, cleared: unique.length }
   }
@@ -736,6 +813,10 @@ export class AdminDbStore {
     const domains = this.domainStats.size
     this.ipStats.clear()
     this.domainStats.clear()
+    this.dirtyTopIps.clear()
+    this.dirtyTopDomains.clear()
+    try { this.db.prepare('DELETE FROM top_ip_stats').run() } catch {}
+    try { this.db.prepare('DELETE FROM top_domain_stats').run() } catch {}
     this.pushEvent({ ts: now(), kind: 'settings_update', detail: `top_clear:all ips=${ips},domains=${domains}` })
     return { ok: true as const, clearedIps: ips, clearedDomains: domains }
   }
@@ -1024,6 +1105,8 @@ export class AdminDbStore {
       }
       st.requests++
       this.ipStats.set(ip, st)
+      this.dirtyTopIps.add(ip)
+      this.scheduleTopFlush()
       if (st.requests > settings.rate.maxRequests) {
         void this.addBan({ type: 'ip', value: ip, reason: `rate_limit>${settings.rate.maxRequests}/${settings.rate.windowSeconds}s`, seconds: settings.banSeconds, createdBy: 'auto' })
         this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_rate_limit' })
@@ -1053,6 +1136,8 @@ export class AdminDbStore {
         }
         st.scanHits++
         this.ipStats.set(ip, st)
+        this.dirtyTopIps.add(ip)
+        this.scheduleTopFlush()
         if (st.scanHits >= settings.scan.maxHits) {
           void this.addBan({ type: 'ip', value: ip, reason: `scan_hits>=${settings.scan.maxHits}/${settings.scan.windowSeconds}s`, seconds: settings.banSeconds, createdBy: 'auto' })
           this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_scan' })
@@ -1069,6 +1154,8 @@ export class AdminDbStore {
       }
       st.requests++
       this.domainStats.set(domain, st)
+      this.dirtyTopDomains.add(domain)
+      this.scheduleTopFlush()
       if (st.requests > settings.refererAbuse.maxRequests) {
         void this.addBan({
           type: 'domain',
