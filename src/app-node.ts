@@ -1328,8 +1328,10 @@ const adminHtml = `<!doctype html>
       .quickLink,.quickBtn{display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
       .quickBtn{appearance:none}
       .quickBtn.danger{color:var(--danger)}
-      .quickBtn.hasBadge{justify-content:flex-start}
       .tab span,.quickLink span,.quickBtn:not(.hasBadge) span,#versionBtnText{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      #versionBtnText:empty{display:none}
+      .quickBtn.versionText{justify-content:center}
+      .quickBtn.versionText #versionBtnIcon{display:none}
       .vBadge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;border:var(--border);border-radius:999px;padding:2px 8px;background:var(--tag-y-bg);box-shadow:0 8px 16px rgba(15,23,42,.08);font-weight:950;font-size:11px;line-height:1;white-space:nowrap;min-width:0}
       .navIcon{width:15px;height:15px;display:block;flex:0 0 auto}
       .topLead{max-width:620px}
@@ -1438,7 +1440,7 @@ const adminHtml = `<!doctype html>
           <div class="quickActions">
             <a class="quickLink" href="/"><svg class="navIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 7.2 8 2.5l6 4.7v6.3a1 1 0 0 1-1 1h-3.2V10H6.2v4.5H3a1 1 0 0 1-1-1V7.2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span>首页</span></a>
             <button class="quickBtn" id="themeToggle" type="button"><svg class="navIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.2v1.6M8 12.2v1.6M3.9 3.9l1.1 1.1M11 11l1.1 1.1M2.2 8h1.6M12.2 8h1.6M3.9 12.1 5 11M11 5l1.1-1.1M10.8 8A2.8 2.8 0 1 1 5.2 8a2.8 2.8 0 0 1 5.6 0Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span>主题</span></button>
-            <button class="quickBtn hasBadge" id="versionBtn" type="button"><svg class="navIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M7.2 2.3h6.5v6.5H7.2V2.3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M2.3 7.2h6.5v6.5H2.3V7.2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M2.3 2.3h3.6v3.6H2.3V2.3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span id="versionBtnText">版本</span><span id="versionBadge" class="vBadge mono" style="display:none"></span></button>
+            <button class="quickBtn" id="versionBtn" type="button" aria-label="版本"><svg class="navIcon" id="versionBtnIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M7.2 2.3h6.5v6.5H7.2V2.3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M2.3 7.2h6.5v6.5H2.3V7.2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M2.3 2.3h3.6v3.6H2.3V2.3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span id="versionBtnText"></span></button>
             <button class="quickBtn danger" id="logout" type="button"><svg class="navIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6.2 2.5H3.8a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h2.4M9.5 11.5 12.5 8l-3-3.5M12.2 8H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>退出</span></button>
           </div>
         </div>
@@ -1789,33 +1791,25 @@ const adminHtml = `<!doctype html>
 
       const bindVersion = () => {
         const btn = $('versionBtn')
-        const badge = $('versionBadge')
+        const txt = $('versionBtnText')
         const close = $('versionClose')
         const modal = $('versionModal')
-        const setBadge = (data) => {
-          if (!badge) return
+        const applyBtn = (data) => {
           const v = String((data && data.appVersion) || '').trim()
-          const c = String((data && data.appCommit) || '').trim()
-          const show = v || (c ? c.slice(0, 7) : '')
-          if (!show) {
-            badge.style.display = 'none'
-            badge.textContent = ''
-            return
-          }
-          badge.textContent = show
-          badge.style.display = 'inline-flex'
+          if (txt) txt.textContent = v
+          btn.classList.toggle('versionText', !!v)
         }
         if (!btn || !close || !modal) return
         api('/admin/api/version')
-          .then((data) => setBadge(data || {}))
-          .catch(() => {})
+          .then((data) => applyBtn(data || {}))
+          .catch(() => applyBtn({}))
         btn.addEventListener('click', async () => {
           const body = $('versionBody')
           if (body) body.innerHTML = '<div class="hint">加载中…</div>'
           setModalOpen(true)
           try {
             const data = await api('/admin/api/version')
-            setBadge(data || {})
+            applyBtn(data || {})
             if (body) body.innerHTML = renderKvRows(data || {})
           } catch {
             if (body) body.innerHTML = '<div class="hint"><span class="bad">ERR</span> 获取失败</div>'
