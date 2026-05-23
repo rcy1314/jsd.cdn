@@ -1287,7 +1287,7 @@ const adminHtml = `<!doctype html>
       @media(max-width:520px){:root{--listH:260px}}
       *{box-sizing:border-box}
       html,body{min-height:100vh}
-      body{margin:0;font-family:var(--sans);color:var(--ink);overflow-x:hidden;background:#f5f0e8}
+      body{margin:0;font-family:var(--sans);color:var(--ink);overflow-x:hidden;background:#f5f0e8;min-height:100vh;min-height:100dvh}
       html[data-theme="dark"] body{background:#0f172a}
       ::-webkit-scrollbar{width:8px;height:8px}
       ::-webkit-scrollbar-track{background:transparent}
@@ -1304,6 +1304,7 @@ const adminHtml = `<!doctype html>
       .tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;min-width:0}
       .quickActions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;min-width:0}
       @media (max-width: 520px){
+        .wrap{padding-bottom:max(22px, env(safe-area-inset-bottom))}
         .tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
         .quickActions{grid-template-columns:repeat(2,minmax(0,1fr))}
         .top .card .hint{-webkit-line-clamp:4}
@@ -1796,7 +1797,7 @@ const adminHtml = `<!doctype html>
         const modal = $('versionModal')
         const applyBtn = (data) => {
           const v = String((data && data.appVersion) || '').trim()
-          if (txt) txt.textContent = v
+          if (txt) txt.textContent = v ? ('版本号：' + v) : ''
           btn.classList.toggle('versionText', !!v)
         }
         if (!btn || !close || !modal) return
