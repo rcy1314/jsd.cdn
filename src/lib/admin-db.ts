@@ -175,6 +175,39 @@ export class AdminDbStore {
     this.db = db
   }
 
+  private addBanImmediate(input: { type: BanType; value: string; reason?: string; seconds?: number; createdBy?: 'manual' | 'auto' }) {
+    const type: BanType = input.type
+    const rawValue = String(input.value ?? '').trim().toLowerCase()
+    if (type === 'ip' && !isProbablyIp(rawValue)) return { ok: false as const, error: 'invalid_ip' as const }
+    if (type === 'domain' && !isProbablyDomain(rawValue)) return { ok: false as const, error: 'invalid_domain' as const }
+    const secondsInput = typeof input.seconds === 'number' ? input.seconds : this.getSettings().banSeconds
+    const expiresAt =
+      typeof secondsInput === 'number' && secondsInput > 0 ? now() + clamp(Math.floor(secondsInput), 60, 60 * 60 * 24 * 30) * 1000 : undefined
+    const entry: BanEntry = {
+      type,
+      value: rawValue,
+      reason: input.reason?.trim() || undefined,
+      createdAt: now(),
+      createdBy: input.createdBy === 'auto' ? 'auto' : 'manual',
+      expiresAt
+    }
+    try {
+      this.db
+        .prepare('INSERT INTO bans (type, value, reason, created_at, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(type, value) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at, created_by=excluded.created_by, expires_at=excluded.expires_at')
+        .run(entry.type, entry.value, entry.reason ?? null, entry.createdAt, entry.createdBy, entry.expiresAt ?? null)
+      this.pushEvent({
+        ts: now(),
+        kind: entry.createdBy === 'auto' ? 'auto_ban' : 'manual_ban',
+        ip: type === 'ip' ? rawValue : undefined,
+        domain: type === 'domain' ? rawValue : undefined,
+        detail: entry.reason
+      })
+      return { ok: true as const, entry }
+    } catch {
+      return { ok: false as const, error: 'db_error' as const }
+    }
+  }
+
   async init() {
     if (this.ready) return
     this.ready = true
@@ -1108,7 +1141,7 @@ export class AdminDbStore {
       this.dirtyTopIps.add(ip)
       this.scheduleTopFlush()
       if (st.requests > settings.rate.maxRequests) {
-        void this.addBan({ type: 'ip', value: ip, reason: `rate_limit>${settings.rate.maxRequests}/${settings.rate.windowSeconds}s`, seconds: settings.banSeconds, createdBy: 'auto' })
+        this.addBanImmediate({ type: 'ip', value: ip, reason: `rate_limit>${settings.rate.maxRequests}/${settings.rate.windowSeconds}s`, seconds: settings.banSeconds, createdBy: 'auto' })
         this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_rate_limit' })
         return { blocked: true as const, reason: 'rate_limited' }
       }
@@ -1120,7 +1153,7 @@ export class AdminDbStore {
       // 高危路径：单次命中立即封禁
       const instantHit = INSTANT_BAN_PATHS.some((p) => lowered.startsWith(p))
       if (instantHit) {
-        void this.addBan({ type: 'ip', value: ip, reason: `instant_ban:${path}`, seconds: settings.banSeconds, createdBy: 'auto' })
+        this.addBanImmediate({ type: 'ip', value: ip, reason: `instant_ban:${path}`, seconds: settings.banSeconds, createdBy: 'auto' })
         this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_instant_ban' })
         return { blocked: true as const, reason: 'scan_detected' }
       }
@@ -1139,7 +1172,7 @@ export class AdminDbStore {
         this.dirtyTopIps.add(ip)
         this.scheduleTopFlush()
         if (st.scanHits >= settings.scan.maxHits) {
-          void this.addBan({ type: 'ip', value: ip, reason: `scan_hits>=${settings.scan.maxHits}/${settings.scan.windowSeconds}s`, seconds: settings.banSeconds, createdBy: 'auto' })
+          this.addBanImmediate({ type: 'ip', value: ip, reason: `scan_hits>=${settings.scan.maxHits}/${settings.scan.windowSeconds}s`, seconds: settings.banSeconds, createdBy: 'auto' })
           this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_scan' })
           return { blocked: true as const, reason: 'scan_detected' }
         }
@@ -1157,14 +1190,14 @@ export class AdminDbStore {
       this.dirtyTopDomains.add(domain)
       this.scheduleTopFlush()
       if (st.requests > settings.refererAbuse.maxRequests) {
-        void this.addBan({
+        this.addBanImmediate({
           type: 'domain',
           value: domain,
           reason: `referer_abuse>${settings.refererAbuse.maxRequests}/${settings.refererAbuse.windowSeconds}s`,
           seconds: settings.banSeconds,
           createdBy: 'auto'
         })
-        if (ip) void this.addBan({ type: 'ip', value: ip, reason: `referer_abuse_ip:${domain}`, seconds: settings.banSeconds, createdBy: 'auto' })
+        if (ip) this.addBanImmediate({ type: 'ip', value: ip, reason: `referer_abuse_ip:${domain}`, seconds: settings.banSeconds, createdBy: 'auto' })
         this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_domain_abuse' })
         return { blocked: true as const, reason: 'domain_blocked' }
       }
