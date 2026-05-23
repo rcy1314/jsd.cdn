@@ -59,7 +59,17 @@ const isProbablyDomain = (value: string) => {
 const normalizeIp = (ip: string) => {
   const s = String(ip ?? '').trim()
   if (!s) return ''
-  const cleaned = s.split(',')[0]?.trim() ?? ''
+  let cleaned = s.split(',')[0]?.trim() ?? ''
+  if (!cleaned) return ''
+  cleaned = cleaned.replace(/^"+|"+$/g, '')
+  if (cleaned.toLowerCase() === 'unknown') return ''
+  if (cleaned.startsWith('[')) {
+    const end = cleaned.indexOf(']')
+    if (end > 1) cleaned = cleaned.slice(1, end)
+  } else {
+    const m = cleaned.match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/)
+    if (m) cleaned = m[1]
+  }
   if (cleaned.startsWith('::ffff:')) return cleaned.slice('::ffff:'.length)
   return cleaned
 }
@@ -170,6 +180,7 @@ export class AdminDbStore {
   private dirtyTopIps = new Set<string>()
   private dirtyTopDomains = new Set<string>()
   private flushTopTimer: any = null
+  private blockedEventDedupe = new Map<string, { lastTs: number; suppressed: number }>()
 
   constructor(db: AppDb) {
     this.db = db
@@ -383,7 +394,7 @@ export class AdminDbStore {
       registrationEnabled: !!row?.registration_enabled,
       cleanup: {
         enabled: row?.cleanup_enabled != null ? !!row.cleanup_enabled : true,
-        eventRetentionDays: clamp(Number(row?.events_retention_days ?? 14), 1, 365),
+        eventRetentionDays: clamp(Number(row?.events_retention_days ?? 14), 1 / 1440, 365),
         topRetentionDays: clamp(Number(row?.top_retention_days ?? 7), 1, 365)
       },
       traffic: {
@@ -466,7 +477,7 @@ export class AdminDbStore {
     this.lastCleanupAt = ts
 
     if (cleanupEnabled) {
-      const eventCutoff = ts - clamp(Number(settings.cleanup.eventRetentionDays), 1, 365) * 24 * 60 * 60 * 1000
+      const eventCutoff = ts - clamp(Number(settings.cleanup.eventRetentionDays), 1 / 1440, 365) * 24 * 60 * 60 * 1000
       try {
         this.db.prepare('DELETE FROM security_events WHERE ts < ?').run(eventCutoff)
       } catch {}
@@ -940,8 +951,8 @@ export class AdminDbStore {
         enabled: next.cleanup?.enabled != null ? !!next.cleanup.enabled : cur.cleanup.enabled,
         eventRetentionDays:
           next.cleanup?.eventRetentionDays != null
-            ? clamp(Number(next.cleanup.eventRetentionDays), 1, 365)
-            : clamp(cur.cleanup.eventRetentionDays, 1, 365),
+            ? clamp(Number(next.cleanup.eventRetentionDays), 1 / 1440, 365)
+            : clamp(cur.cleanup.eventRetentionDays, 1 / 1440, 365),
         topRetentionDays:
           next.cleanup?.topRetentionDays != null
             ? clamp(Number(next.cleanup.topRetentionDays), 1, 365)
@@ -1123,7 +1134,7 @@ export class AdminDbStore {
 
     const manual = this.isManuallyBanned(ip, domain)
     if (manual) {
-      this.pushEvent({ ts: now(), kind: 'blocked', ip, domain, path, detail: `${manual.type}:${manual.value}` })
+      this.pushBlockedEvent({ ts: now(), kind: 'blocked', ip, domain, path, detail: `${manual.type}:${manual.value}` })
       return { blocked: true as const, reason: manual.reason || 'banned' }
     }
 
@@ -1142,7 +1153,7 @@ export class AdminDbStore {
       this.scheduleTopFlush()
       if (st.requests > settings.rate.maxRequests) {
         this.addBanImmediate({ type: 'ip', value: ip, reason: `rate_limit>${settings.rate.maxRequests}/${settings.rate.windowSeconds}s`, seconds: settings.banSeconds, createdBy: 'auto' })
-        this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_rate_limit' })
+        this.pushBlockedEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_rate_limit' })
         return { blocked: true as const, reason: 'rate_limited' }
       }
     }
@@ -1154,7 +1165,7 @@ export class AdminDbStore {
       const instantHit = INSTANT_BAN_PATHS.some((p) => lowered.startsWith(p))
       if (instantHit) {
         this.addBanImmediate({ type: 'ip', value: ip, reason: `instant_ban:${path}`, seconds: settings.banSeconds, createdBy: 'auto' })
-        this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_instant_ban' })
+        this.pushBlockedEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_instant_ban' })
         return { blocked: true as const, reason: 'scan_detected' }
       }
 
@@ -1173,7 +1184,7 @@ export class AdminDbStore {
         this.scheduleTopFlush()
         if (st.scanHits >= settings.scan.maxHits) {
           this.addBanImmediate({ type: 'ip', value: ip, reason: `scan_hits>=${settings.scan.maxHits}/${settings.scan.windowSeconds}s`, seconds: settings.banSeconds, createdBy: 'auto' })
-          this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_scan' })
+          this.pushBlockedEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_scan' })
           return { blocked: true as const, reason: 'scan_detected' }
         }
       }
@@ -1198,7 +1209,7 @@ export class AdminDbStore {
           createdBy: 'auto'
         })
         if (ip) this.addBanImmediate({ type: 'ip', value: ip, reason: `referer_abuse_ip:${domain}`, seconds: settings.banSeconds, createdBy: 'auto' })
-        this.pushEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_domain_abuse' })
+        this.pushBlockedEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_domain_abuse' })
         return { blocked: true as const, reason: 'domain_blocked' }
       }
     }
@@ -1206,11 +1217,125 @@ export class AdminDbStore {
     return { blocked: false as const }
   }
 
+  private pushBlockedEvent(e: SecurityEvent) {
+    const ts = typeof e.ts === 'number' ? e.ts : now()
+    const ip = e.ip ? normalizeIp(e.ip) : ''
+    const domain = e.domain ? String(e.domain).trim().toLowerCase() : ''
+    const path = e.path ? String(e.path) : ''
+    const detail = e.detail ? String(e.detail) : ''
+    const key = `blocked|${ip}|${domain}|${detail}`
+    const minGapMs = 5000
+    const cur = this.blockedEventDedupe.get(key)
+    if (cur && ts - cur.lastTs < minGapMs) {
+      cur.suppressed++
+      return
+    }
+    let outDetail = detail
+    const suppressed = cur?.suppressed ?? 0
+    if (suppressed > 0) outDetail = outDetail ? `${outDetail};suppressed=${suppressed}` : `suppressed=${suppressed}`
+    this.blockedEventDedupe.set(key, { lastTs: ts, suppressed: 0 })
+    if (this.blockedEventDedupe.size > 5000) this.blockedEventDedupe.clear()
+    this.pushEvent({ ...e, ts, ip: ip || undefined, domain: domain || undefined, path: path || undefined, detail: outDetail || undefined })
+  }
+
+  private getActiveAutoBansFromEvents(params?: { limit?: number }) {
+    const limit = clamp(Number(params?.limit ?? 2000), 200, 20000)
+    const nowTs = now()
+    const settings = this.getSettings()
+    const banMs = clamp(Number(settings.banSeconds), 60, 60 * 60 * 24 * 30) * 1000
+
+    const lastUnban = new Map<string, number>()
+    try {
+      const rows = this.db.prepare('SELECT ts, ip, domain FROM security_events WHERE kind=? ORDER BY ts DESC LIMIT ?').all('unban', limit) as any[]
+      for (const r of rows) {
+        const ts = Number(r.ts) || 0
+        if (!ts) continue
+        const ip = r.ip != null ? normalizeIp(String(r.ip)) : ''
+        const domain = r.domain != null ? String(r.domain).trim().toLowerCase() : ''
+        if (ip) {
+          const key = `ip:${ip}`
+          const cur = lastUnban.get(key) ?? 0
+          if (ts > cur) lastUnban.set(key, ts)
+        }
+        if (domain) {
+          const key = `domain:${domain}`
+          const cur = lastUnban.get(key) ?? 0
+          if (ts > cur) lastUnban.set(key, ts)
+        }
+      }
+    } catch {}
+
+    const latest = new Map<string, { ts: number; reason: string }>()
+    const upsertLatest = (key: string, ts: number, reason: string) => {
+      const cur = latest.get(key)
+      if (!cur || ts > cur.ts) latest.set(key, { ts, reason })
+    }
+    try {
+      const rows = this.db.prepare('SELECT ts, ip, domain, detail FROM security_events WHERE kind=? ORDER BY ts DESC LIMIT ?').all('blocked', limit) as any[]
+      for (const r of rows) {
+        const ts = Number(r.ts) || 0
+        if (!ts) continue
+        const ip = r.ip != null ? normalizeIp(String(r.ip)) : ''
+        const domain = r.domain != null ? String(r.domain).trim().toLowerCase() : ''
+        const detail = r.detail != null ? String(r.detail) : ''
+        if (!detail.startsWith('auto_')) continue
+
+        if (ip) {
+          const key = `ip:${ip}`
+          upsertLatest(key, ts, detail)
+        }
+        if (domain) {
+          const key = `domain:${domain}`
+          upsertLatest(key, ts, detail)
+        }
+      }
+    } catch {}
+
+    try {
+      const rows = this.db.prepare('SELECT ts, ip, domain, detail FROM security_events WHERE kind=? ORDER BY ts DESC LIMIT ?').all('auto_ban', limit) as any[]
+      for (const r of rows) {
+        const ts = Number(r.ts) || 0
+        if (!ts) continue
+        const ip = r.ip != null ? normalizeIp(String(r.ip)) : ''
+        const domain = r.domain != null ? String(r.domain).trim().toLowerCase() : ''
+        const detail = r.detail != null ? String(r.detail) : ''
+        const reason = detail || 'auto_ban'
+        if (ip) upsertLatest(`ip:${ip}`, ts, reason)
+        if (domain) upsertLatest(`domain:${domain}`, ts, reason)
+      }
+    } catch {}
+
+    const out: BanEntry[] = []
+    for (const [key, v] of latest.entries()) {
+      const unbanTs = lastUnban.get(key) ?? 0
+      if (unbanTs && unbanTs > v.ts) continue
+      const expiresAt = v.ts + banMs
+      if (expiresAt <= nowTs) continue
+      if (key.startsWith('ip:')) {
+        const ip = key.slice('ip:'.length)
+        out.push({ type: 'ip', value: ip, reason: v.reason, createdAt: v.ts, createdBy: 'auto', expiresAt })
+      } else if (key.startsWith('domain:')) {
+        const domain = key.slice('domain:'.length)
+        out.push({ type: 'domain', value: domain, reason: v.reason, createdAt: v.ts, createdBy: 'auto', expiresAt })
+      }
+    }
+    out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    return out
+  }
+
   getOverview() {
     this.maybeCleanup(now())
     const settings = this.getSettings()
     const site = this.getSiteSettings()
-    const bans = this.getBans()
+    const bansDb = this.getBans()
+    const bansFromEvents = this.getActiveAutoBansFromEvents({ limit: 5000 })
+    const mergedMap = new Map<string, BanEntry>()
+    for (const b of bansDb) mergedMap.set(`${b.type}:${b.value}`, b)
+    for (const b of bansFromEvents) {
+      const k = `${b.type}:${b.value}`
+      if (!mergedMap.has(k)) mergedMap.set(k, b)
+    }
+    const bans = Array.from(mergedMap.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
     const announcements = this.getAnnouncements()
     const events = this.getEvents(120)
     const topIps = Array.from(this.ipStats.entries())

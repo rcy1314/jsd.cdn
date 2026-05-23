@@ -1499,7 +1499,7 @@ const adminHtml = `<!doctype html>
           </div>
           <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="cleanupEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">自动清理</span></label>
-            <input id="eventKeepDays" placeholder="事件保留天数（默认 14）" />
+            <input id="eventKeepDays" placeholder="事件保留天数（支持小数，默认 14）" />
             <input id="topKeepDays" placeholder="热点保留天数（默认 7）" />
           </div>
           <div class="row formRow" style="margin-top:10px">
