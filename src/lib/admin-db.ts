@@ -48,6 +48,23 @@ const now = () => Date.now()
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
 
+const toEpochMs = (ts: number) => {
+  const v = Number(ts) || 0
+  if (!Number.isFinite(v) || v <= 0) return 0
+  if (v < 1e11) return v * 1000
+  return v
+}
+
+const toExpiresAtMs = (expiresAt: number, createdAtMs: number) => {
+  const v = Number(expiresAt) || 0
+  if (!Number.isFinite(v) || v <= 0) return 0
+  if (v < 1e11) {
+    if (v < 1e9 && createdAtMs > 1e11) return createdAtMs + v * 1000
+    return v * 1000
+  }
+  return v
+}
+
 const isProbablyDomain = (value: string) => {
   const v = String(value ?? '').trim().toLowerCase()
   if (!v) return false
@@ -181,9 +198,32 @@ export class AdminDbStore {
   private dirtyTopDomains = new Set<string>()
   private flushTopTimer: any = null
   private blockedEventDedupe = new Map<string, { lastTs: number; suppressed: number }>()
+  private bansTsNormalized = false
 
   constructor(db: AppDb) {
     this.db = db
+  }
+
+  private normalizeBanTableTimestamps() {
+    if (this.bansTsNormalized) return
+    this.bansTsNormalized = true
+    try {
+      const rows = this.db.prepare('SELECT type, value, created_at, expires_at FROM bans').all() as any[]
+      const upd = this.db.prepare('UPDATE bans SET created_at=?, expires_at=? WHERE type=? AND value=?')
+      for (const r of rows) {
+        const type = r.type === 'domain' ? 'domain' : 'ip'
+        const value = String(r.value ?? '')
+        const createdAtRaw = Number(r.created_at) || 0
+        const createdAtMs = toEpochMs(createdAtRaw) || createdAtRaw
+        const expiresAtRaw = r.expires_at != null ? Number(r.expires_at) || 0 : 0
+        const expiresAtMs = expiresAtRaw ? toExpiresAtMs(expiresAtRaw, createdAtMs) || expiresAtRaw : 0
+        const nextCreated = createdAtMs || createdAtRaw
+        const nextExpires = r.expires_at == null ? null : expiresAtMs || expiresAtRaw || null
+        const curCreated = createdAtRaw || 0
+        const curExpires = r.expires_at == null ? null : expiresAtRaw || null
+        if (nextCreated !== curCreated || nextExpires !== curExpires) upd.run(nextCreated, nextExpires, type, value)
+      }
+    } catch {}
   }
 
   private addBanImmediate(input: { type: BanType; value: string; reason?: string; seconds?: number; createdBy?: 'manual' | 'auto' }) {
@@ -427,27 +467,32 @@ export class AdminDbStore {
   }
 
   getBans(): BanEntry[] {
+    this.normalizeBanTableTimestamps()
     this.cleanupExpiredBans()
     const rows = this.db.prepare('SELECT type, value, reason, created_at, created_by, expires_at FROM bans').all() as any[]
     const ts = now()
     const out: BanEntry[] = []
     for (const r of rows) {
-      const expiresAt = r.expires_at != null ? Number(r.expires_at) : undefined
-      if (typeof expiresAt === 'number' && expiresAt <= ts) continue
+      const createdAt = toEpochMs(Number(r.created_at) || 0) || ts
+      const expiresAt =
+        r.expires_at != null ? (toExpiresAtMs(Number(r.expires_at) || 0, createdAt) || toEpochMs(Number(r.expires_at) || 0) || Number(r.expires_at) || 0) : 0
+      const exp = expiresAt > 0 ? expiresAt : undefined
+      if (typeof exp === 'number' && exp <= ts) continue
       const type = r.type === 'domain' ? 'domain' : 'ip'
       out.push({
         type,
         value: String(r.value),
         reason: typeof r.reason === 'string' ? r.reason : undefined,
-        createdAt: Number(r.created_at) || ts,
+        createdAt,
         createdBy: r.created_by === 'auto' ? 'auto' : 'manual',
-        expiresAt
+        expiresAt: exp
       })
     }
     return out
   }
 
   private cleanupExpiredBans() {
+    this.normalizeBanTableTimestamps()
     const ts = now()
     this.db.prepare('DELETE FROM bans WHERE expires_at IS NOT NULL AND expires_at <= ?').run(ts)
   }
@@ -1248,7 +1293,7 @@ export class AdminDbStore {
     try {
       const rows = this.db.prepare('SELECT ts, ip, domain FROM security_events WHERE kind=? ORDER BY ts DESC LIMIT ?').all('unban', limit) as any[]
       for (const r of rows) {
-        const ts = Number(r.ts) || 0
+        const ts = toEpochMs(Number(r.ts) || 0)
         if (!ts) continue
         const ip = r.ip != null ? normalizeIp(String(r.ip)) : ''
         const domain = r.domain != null ? String(r.domain).trim().toLowerCase() : ''
@@ -1273,7 +1318,7 @@ export class AdminDbStore {
     try {
       const rows = this.db.prepare('SELECT ts, ip, domain, detail FROM security_events WHERE kind=? ORDER BY ts DESC LIMIT ?').all('blocked', limit) as any[]
       for (const r of rows) {
-        const ts = Number(r.ts) || 0
+        const ts = toEpochMs(Number(r.ts) || 0)
         if (!ts) continue
         const ip = r.ip != null ? normalizeIp(String(r.ip)) : ''
         const domain = r.domain != null ? String(r.domain).trim().toLowerCase() : ''
@@ -1294,7 +1339,7 @@ export class AdminDbStore {
     try {
       const rows = this.db.prepare('SELECT ts, ip, domain, detail FROM security_events WHERE kind=? ORDER BY ts DESC LIMIT ?').all('auto_ban', limit) as any[]
       for (const r of rows) {
-        const ts = Number(r.ts) || 0
+        const ts = toEpochMs(Number(r.ts) || 0)
         if (!ts) continue
         const ip = r.ip != null ? normalizeIp(String(r.ip)) : ''
         const domain = r.domain != null ? String(r.domain).trim().toLowerCase() : ''
