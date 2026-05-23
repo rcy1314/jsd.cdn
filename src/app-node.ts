@@ -1299,10 +1299,10 @@ const adminHtml = `<!doctype html>
       .card{background:var(--card);border:var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:var(--pad)}
       .card2{background:var(--card);border:var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:16px}
       h1{margin:0;font-size:18px}
-      .panelNav{min-width:0;display:flex;flex-direction:column;gap:12px}
+      .panelNav{min-width:0;display:flex;flex-direction:column;gap:10px}
       .top .card .hint{max-width:60ch;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-      .tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-      .quickActions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+      .tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;min-width:0}
+      .quickActions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;min-width:0}
       @media (max-width: 520px){
         .tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
         .quickActions{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -1310,13 +1310,17 @@ const adminHtml = `<!doctype html>
         table{border-spacing:0 10px}
         table tr:first-child{display:none}
         .tr{display:block}
-        .tr td{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 12px}
+        .tr td{display:flex;align-items:flex-start;justify-content:flex-start;flex-wrap:wrap;gap:10px;padding:10px 12px}
         .tr td[colspan]{display:block}
         .tr td::before{content:attr(data-k);font-weight:900;color:var(--muted);flex:0 0 auto;max-width:46%}
         .tr td[colspan]::before{content:""}
         .tr td:first-child{border-top-left-radius:18px;border-top-right-radius:18px;border-bottom-left-radius:0}
         .tr td:last-child{border-bottom-left-radius:18px;border-bottom-right-radius:18px;border-top-right-radius:0}
         .tr td .row{width:100%;justify-content:flex-end}
+        .formRow > input:not([type="file"]),.formRow > select,.formRow > textarea{flex-basis:100%}
+        .formRow > button{flex-basis:100%}
+        .formRow > .switch,.formRow > .hint{flex-basis:100%}
+        textarea{min-height:120px}
       }
       .tab,.quickLink,.quickBtn{border:var(--border);border-radius:18px;padding:11px 12px;background:var(--paper);box-shadow:0 8px 18px rgba(15,23,42,.1);font-weight:900;font-size:12px;color:var(--ink);min-height:48px}
       .tab{display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;user-select:none}
@@ -1324,18 +1328,26 @@ const adminHtml = `<!doctype html>
       .quickLink,.quickBtn{display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
       .quickBtn{appearance:none}
       .quickBtn.danger{color:var(--danger)}
+      .quickBtn.hasBadge{justify-content:flex-start}
+      .tab span,.quickLink span,.quickBtn:not(.hasBadge) span,#versionBtnText{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .vBadge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;border:var(--border);border-radius:999px;padding:2px 8px;background:var(--tag-y-bg);box-shadow:0 8px 16px rgba(15,23,42,.08);font-weight:950;font-size:11px;line-height:1;white-space:nowrap;min-width:0}
       .navIcon{width:15px;height:15px;display:block;flex:0 0 auto}
       .topLead{max-width:620px}
       .grid{display:grid;grid-template-columns:1fr;gap:14px}
       .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+      .formRow{justify-content:flex-start}
+      .formRow input:not([type="file"]),.formRow select{flex:0 1 220px}
+      .formRow .switch{flex:1 1 220px}
+      .formRow .hint{flex:1 1 220px}
       label{font-weight:900;font-size:12px}
       input,textarea,select{border:var(--border);border-radius:16px;padding:10px 12px;font-size:14px;color:var(--ink);background:var(--field);outline:none;box-shadow:0 10px 22px rgba(15,23,42,.08);font-family:var(--mono)}
       textarea{width:100%;min-height:140px;resize:vertical}
       input:not([type="file"]){min-width:0;flex:1 1 240px}
+      select{min-width:0;flex:1 1 200px}
       button{border:var(--border);border-radius:16px;padding:10px 12px;font-weight:900;color:var(--ink);background:var(--card);box-shadow:0 12px 24px rgba(15,23,42,.12);cursor:pointer}
       button:active{transform:translateY(1px);box-shadow:0 8px 18px rgba(15,23,42,.12)}
       table{width:100%;border-collapse:separate;border-spacing:0 10px}
-      td,th{font-size:12px;text-align:left;padding:10px 10px;vertical-align:top}
+      td,th{font-size:12px;text-align:left;padding:10px 10px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}
       .tr td{background:var(--card)}
       .tr{border:var(--border);border-radius:18px;background:transparent;box-shadow:0 10px 22px rgba(15,23,42,.08)}
       .tr td:first-child{border-top-left-radius:18px;border-bottom-left-radius:18px}
@@ -1377,6 +1389,13 @@ const adminHtml = `<!doctype html>
       input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
       select option{color:var(--ink);background:var(--card)}
       .scrollBox{margin-top:10px;overflow:auto;max-height:var(--listH);overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+      .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.38);backdrop-filter:saturate(120%) blur(6px);z-index:9999}
+      .modalCard{background:var(--card);border:var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:16px;max-width:680px;width:100%;max-height:min(84vh,720px);overflow:auto}
+      .kv{display:grid;gap:10px;margin-top:12px}
+      .kvRow{border:var(--border);border-radius:18px;background:var(--paper);box-shadow:0 10px 22px rgba(15,23,42,.08);padding:10px 12px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+      .kvRow .k{font-weight:900;color:var(--muted);flex:0 0 auto}
+      .kvRow .v{font-family:var(--mono);text-align:right;overflow-wrap:anywhere;word-break:break-word;min-width:0;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+      @media (max-width: 520px){.kvRow{flex-direction:column}.kvRow .v{text-align:left;align-items:flex-start}}
       .stat{border:var(--border);border-radius:var(--radius);padding:12px;background:var(--card);box-shadow:var(--shadow-md);flex:1 1 160px;min-width:0}
       .drop{border:var(--border);border-radius:var(--radius);padding:12px;background:var(--paper);box-shadow:var(--shadow-md);min-width:0;width:100%}
       html[data-theme="dark"]{
@@ -1419,6 +1438,7 @@ const adminHtml = `<!doctype html>
           <div class="quickActions">
             <a class="quickLink" href="/"><svg class="navIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 7.2 8 2.5l6 4.7v6.3a1 1 0 0 1-1 1h-3.2V10H6.2v4.5H3a1 1 0 0 1-1-1V7.2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span>首页</span></a>
             <button class="quickBtn" id="themeToggle" type="button"><svg class="navIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.2v1.6M8 12.2v1.6M3.9 3.9l1.1 1.1M11 11l1.1 1.1M2.2 8h1.6M12.2 8h1.6M3.9 12.1 5 11M11 5l1.1-1.1M10.8 8A2.8 2.8 0 1 1 5.2 8a2.8 2.8 0 0 1 5.6 0Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span>主题</span></button>
+            <button class="quickBtn hasBadge" id="versionBtn" type="button"><svg class="navIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M7.2 2.3h6.5v6.5H7.2V2.3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M2.3 7.2h6.5v6.5H2.3V7.2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M2.3 2.3h3.6v3.6H2.3V2.3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span id="versionBtnText">版本</span><span id="versionBadge" class="vBadge mono" style="display:none"></span></button>
             <button class="quickBtn danger" id="logout" type="button"><svg class="navIcon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6.2 2.5H3.8a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h2.4M9.5 11.5 12.5 8l-3-3.5M12.2 8H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>退出</span></button>
           </div>
         </div>
@@ -1433,7 +1453,7 @@ const adminHtml = `<!doctype html>
               <button id="banDeleteSel" type="button">删除选中</button>
             </div>
           </div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <select id="banType">
               <option value="ip">IP</option>
               <option value="domain">域名</option>
@@ -1451,35 +1471,35 @@ const adminHtml = `<!doctype html>
         <div class="card2">
           <div class="row"><div><b>自动识别与选项</b></div><button id="saveSettings" type="button">保存</button></div>
           <div class="hint">建议先开启：扫描识别 + 频率限制 + Referer 滥用识别。</div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="secEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">启用安全策略</span></label>
             <input id="banSecondsSet" placeholder="自动封禁秒数（默认 3600）" />
           </div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="rateEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">频率限制</span></label>
             <input id="rateWindow" placeholder="窗口秒数" />
             <input id="rateMax" placeholder="最大请求数" />
           </div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="scanEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">扫描识别</span></label>
             <input id="scanWindow" placeholder="窗口秒数" />
             <input id="scanMax" placeholder="最大命中数" />
           </div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="refEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">Referer 滥用识别</span></label>
             <input id="refWindow" placeholder="窗口秒数" />
             <input id="refMax" placeholder="最大请求数" />
           </div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="regEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">允许用户注册</span></label>
             <div class="hint">默认仅允许首次注册（管理员）。开启后允许注册普通用户。</div>
           </div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="cleanupEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">自动清理</span></label>
             <input id="eventKeepDays" placeholder="事件保留天数（默认 14）" />
             <input id="topKeepDays" placeholder="热点保留天数（默认 7）" />
           </div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="trafficEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">流量统计</span></label>
             <input id="trafficKeepDays" placeholder="流量保留天数（默认 30）" />
           </div>
@@ -1594,11 +1614,11 @@ const adminHtml = `<!doctype html>
         <div class="card2">
           <div class="row"><div><b>页面设置</b></div><button id="saveSite" type="button">保存</button></div>
           <div class="hint">用于首页 SEO（title/description）、favicon/logo 和页脚内容。</div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <input id="siteTitle" placeholder="站点标题（title）" />
             <input id="siteDesc" placeholder="站点描述（meta description）" />
           </div>
-          <div class="row" style="margin-top:10px">
+          <div class="row formRow" style="margin-top:10px">
             <select id="footerFormat">
               <option value="text">Footer: Text</option>
               <option value="html">Footer: HTML</option>
@@ -1609,7 +1629,7 @@ const adminHtml = `<!doctype html>
           <div class="row" style="margin-top:10px;align-items:flex-start">
             <div style="flex:1;min-width:0">
               <div class="hint"><b>Favicon</b>（优先级：上传图片 > URL > 内置）</div>
-              <div class="row" style="margin-top:8px">
+              <div class="row formRow" style="margin-top:8px">
                 <input id="faviconUrl" placeholder="favicon URL（可选）" />
               </div>
               <div class="row" style="margin-top:8px;align-items:flex-start">
@@ -1634,7 +1654,7 @@ const adminHtml = `<!doctype html>
             </div>
             <div style="flex:1;min-width:0">
               <div class="hint"><b>Logo</b>（优先级：上传图片 > URL > 内置）</div>
-              <div class="row" style="margin-top:8px">
+              <div class="row formRow" style="margin-top:8px">
                 <input id="logoUrl" placeholder="logo URL（可选）" />
               </div>
               <div class="row" style="margin-top:8px;align-items:flex-start">
@@ -1660,6 +1680,16 @@ const adminHtml = `<!doctype html>
           </div>
           <div id="siteMsg" class="hint"></div>
         </div>
+      </div>
+    </div>
+    <div id="versionModal" class="modal" aria-hidden="true">
+      <div class="modalCard">
+        <div class="row">
+          <div><b>版本信息</b></div>
+          <button id="versionClose" type="button">关闭</button>
+        </div>
+        <div class="hint">Docker 运行时可通过环境变量注入：APP_VERSION / APP_COMMIT / APP_IMAGE / BUILD_TIME。</div>
+        <div id="versionBody" class="kv"></div>
       </div>
     </div>
     <script>
@@ -1718,6 +1748,83 @@ const adminHtml = `<!doctype html>
         const cur = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
         applyTheme(cur === 'dark' ? 'light' : 'dark')
       })
+
+      const setModalOpen = (open) => {
+        const m = $('versionModal')
+        if (!m) return
+        m.style.display = open ? 'flex' : 'none'
+        m.setAttribute('aria-hidden', open ? 'false' : 'true')
+      }
+
+      const renderKvRows = (data) => {
+        const version = String((data && data.appVersion) || '').trim()
+        const image = String((data && data.appImage) || '').trim()
+        const commit = String((data && data.appCommit) || '').trim()
+        const buildTimeRaw = String((data && data.buildTime) || '').trim()
+        const buildTimeFmt = buildTimeRaw ? fmtTs(buildTimeRaw) : ''
+
+        const rows = [
+          ['版本', version, ''],
+          ['镜像', image, ''],
+          ['发布时间', buildTimeFmt || buildTimeRaw, buildTimeFmt && buildTimeRaw && buildTimeFmt !== buildTimeRaw ? buildTimeRaw : ''],
+          ['Commit', commit ? commit.slice(0, 7) : '', commit && commit.length > 7 ? commit : '']
+        ]
+          .map(([k, main, sub]) => [k, String(main || '').trim(), String(sub || '').trim()])
+          .filter((x) => x[1])
+
+        if (!rows.length) return '<div class="hint">暂无版本信息（未注入环境变量）</div>'
+
+        return rows
+          .map(([k, main, sub]) =>
+            '<div class="kvRow">' +
+              '<div class="k">' + esc(k) + '</div>' +
+              '<div class="v">' +
+                '<div>' + esc(main) + '</div>' +
+                (sub ? '<div class="hint mono">' + esc(sub) + '</div>' : '') +
+              '</div>' +
+            '</div>'
+          )
+          .join('')
+      }
+
+      const bindVersion = () => {
+        const btn = $('versionBtn')
+        const badge = $('versionBadge')
+        const close = $('versionClose')
+        const modal = $('versionModal')
+        const setBadge = (data) => {
+          if (!badge) return
+          const v = String((data && data.appVersion) || '').trim()
+          const c = String((data && data.appCommit) || '').trim()
+          const show = v || (c ? c.slice(0, 7) : '')
+          if (!show) {
+            badge.style.display = 'none'
+            badge.textContent = ''
+            return
+          }
+          badge.textContent = show
+          badge.style.display = 'inline-flex'
+        }
+        if (!btn || !close || !modal) return
+        api('/admin/api/version')
+          .then((data) => setBadge(data || {}))
+          .catch(() => {})
+        btn.addEventListener('click', async () => {
+          const body = $('versionBody')
+          if (body) body.innerHTML = '<div class="hint">加载中…</div>'
+          setModalOpen(true)
+          try {
+            const data = await api('/admin/api/version')
+            setBadge(data || {})
+            if (body) body.innerHTML = renderKvRows(data || {})
+          } catch {
+            if (body) body.innerHTML = '<div class="hint"><span class="bad">ERR</span> 获取失败</div>'
+          }
+        })
+        close.addEventListener('click', () => setModalOpen(false))
+        modal.addEventListener('click', (e) => { if (e.target === modal) setModalOpen(false) })
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setModalOpen(false) })
+      }
 
       $('logout').addEventListener('click', async () => {
         await fetch('/admin/logout', { method: 'POST', credentials: 'include', headers: { 'x-csrf-token': getCookie('jsd_csrf') || '' } })
@@ -2150,6 +2257,7 @@ const adminHtml = `<!doctype html>
 
       const lastTab = (() => { try { return localStorage.getItem('jsd_admin_tab') || '' } catch { return '' } })()
       setTab(lastTab || 'security')
+      bindVersion()
       load().catch(() => {})
     </script>
   </body>
@@ -2511,6 +2619,18 @@ export const createNodeApp = (deps: { adminStore: AdminDbStore; auth: AuthDb }) 
     if (!(await isAuthedAdmin(c))) return c.json({ error: 'unauthorized' }, 401)
     await adminStore.init()
     return c.json(adminStore.getOverview())
+  })
+
+  app.get('/admin/api/version', async (c: Context) => {
+    await auth.init()
+    if (!(await isAuthedAdmin(c))) return c.json({ error: 'unauthorized' }, 401)
+    const env = process.env
+    return c.json({
+      appVersion: String(env.APP_VERSION || ''),
+      appCommit: String(env.APP_COMMIT || ''),
+      appImage: String(env.APP_IMAGE || ''),
+      buildTime: String(env.BUILD_TIME || '')
+    })
   })
 
   app.post('/admin/api/ban', async (c: Context) => {

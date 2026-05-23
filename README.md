@@ -329,8 +329,8 @@ docker login
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --build-arg VERSION=v1.4 \
-  -t noise233/jsd-noise:v1.4 \
+  --build-arg VERSION=v1.5 \
+  -t noise233/jsd-noise:v1.5 \
   -t noise233/jsd-noise:latest \
   --push .
 ```
@@ -356,7 +356,7 @@ docker run -d \
   -e PORT=5011 \
   -e DB_PATH=/app/data/app.db \
   -e TZ=Asia/Shanghai \
-  noise233/jsd-noise:latest
+  noise233/jsd-noise:v1.4
 ```
 
 
