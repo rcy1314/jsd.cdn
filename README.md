@@ -356,7 +356,7 @@ docker run -d \
   -e PORT=5011 \
   -e DB_PATH=/app/data/app.db \
   -e TZ=Asia/Shanghai \
-  noise233/jsd-noise:v1.4
+  noise233/jsd-noise:latest
 ```
 
 
