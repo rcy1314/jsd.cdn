@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
+import { existsSync, readFileSync } from 'node:fs'
 import { convertToJsDelivr } from './lib/convert.js'
 import { proxyJsDelivr } from './lib/proxy.js'
 import { AdminDbStore } from './lib/admin-db.js'
@@ -1392,6 +1393,11 @@ const adminHtml = `<!doctype html>
       input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
       select option{color:var(--ink);background:var(--card)}
       .scrollBox{margin-top:10px;overflow:auto;max-height:var(--listH);overscroll-behavior:none;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;contain:layout paint}
+      .cols2{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+      .cols2 > div{flex:1 1 360px;min-width:0}
+      @media (max-width: 520px){.cols2{flex-direction:column}.cols2 > div{flex:1 1 auto}}
+      .btnMini{border-radius:14px;padding:6px 10px;font-size:12px;box-shadow:0 10px 18px rgba(15,23,42,.10)}
+      .btnMini:active{transform:translateY(1px);box-shadow:0 8px 14px rgba(15,23,42,.10)}
       .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.38);backdrop-filter:saturate(120%) blur(6px);z-index:9999}
       .modalCard{background:var(--card);border:var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:16px;max-width:680px;width:100%;max-height:min(84vh,720px);overflow:auto}
       .kv{display:grid;gap:10px;margin-top:12px}
@@ -1453,7 +1459,7 @@ const adminHtml = `<!doctype html>
             <div><b>封禁列表</b></div>
             <div class="row" style="gap:10px">
               <div class="hint mono" id="banCount"></div>
-              <button id="banDeleteSel" type="button">删除选中</button>
+              <button class="btnMini" id="banDeleteSel" type="button">删除选中</button>
             </div>
           </div>
           <div class="row formRow" style="margin-top:10px">
@@ -1488,6 +1494,16 @@ const adminHtml = `<!doctype html>
             <input id="scanWindow" placeholder="窗口秒数" />
             <input id="scanMax" placeholder="最大命中数" />
           </div>
+          <div class="cols2" style="margin-top:10px">
+            <div>
+              <label for="instantBanPaths">高危路径（立即封禁）</label>
+              <textarea id="instantBanPaths" class="mono" placeholder="每行一个路径前缀（可选；留空使用内置规则）"></textarea>
+            </div>
+            <div>
+              <label for="scanPaths">扫描路径（累计命中）</label>
+              <textarea id="scanPaths" class="mono" placeholder="每行一个路径前缀（可选；留空使用内置规则）"></textarea>
+            </div>
+          </div>
           <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="refEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">Referer 滥用识别</span></label>
             <input id="refWindow" placeholder="窗口秒数" />
@@ -1514,18 +1530,18 @@ const adminHtml = `<!doctype html>
           <div class="row">
             <div><b>近期热点（IP / 域名）</b></div>
             <div class="row" style="gap:10px">
-              <button id="topClearAll" type="button">清空全部</button>
-              <button id="topClearSel" type="button">删除选中</button>
-              <button id="refresh" type="button">刷新</button>
+              <button class="btnMini" id="topClearAll" type="button">清空全部</button>
+              <button class="btnMini" id="topClearSel" type="button">删除选中</button>
+              <button class="btnMini" id="refresh" type="button">刷新</button>
             </div>
           </div>
           <div class="hint">点击“封禁”可一键加入封禁列表。</div>
-          <div class="row" style="margin-top:10px;gap:14px;align-items:flex-start">
-            <div style="flex:1;min-width:0">
+          <div class="cols2" style="margin-top:10px">
+            <div>
               <div class="hint"><b>Top IP</b></div>
               <div class="scrollBox"><table id="topIp"></table></div>
             </div>
-            <div style="flex:1;min-width:0">
+            <div>
               <div class="hint"><b>Top 域名（Referer/Origin）</b></div>
               <div class="scrollBox"><table id="topDomain"></table></div>
             </div>
@@ -1536,8 +1552,8 @@ const adminHtml = `<!doctype html>
           <div class="row">
             <div><b>事件日志</b></div>
             <div class="row" style="gap:10px">
-              <button id="eventClearAll" type="button">清空全部</button>
-              <button id="eventDeleteSel" type="button">删除选中</button>
+              <button class="btnMini" id="eventClearAll" type="button">清空全部</button>
+              <button class="btnMini" id="eventDeleteSel" type="button">删除选中</button>
             </div>
           </div>
           <div class="scrollBox" style="max-height:260px">
@@ -1551,8 +1567,8 @@ const adminHtml = `<!doctype html>
           <div class="row">
             <div><b>流量统计</b></div>
             <div class="row" style="gap:10px">
-              <button id="trafficClearAll" type="button">清空全部</button>
-              <button id="trafficRefresh" type="button">刷新</button>
+              <button class="btnMini" id="trafficClearAll" type="button">清空全部</button>
+              <button class="btnMini" id="trafficRefresh" type="button">刷新</button>
             </div>
           </div>
           <div class="hint">显示近 30 天流量汇总（字节/请求数）与 Top 列表。流量统计开关在「安全管理」内；删除记录可释放内存。</div>
@@ -1576,7 +1592,7 @@ const adminHtml = `<!doctype html>
         <div class="card2">
           <div class="row">
             <div><b>按客户端 IP 流量排行</b></div>
-            <button id="trafficIpClearSel" type="button">删除选中</button>
+            <button class="btnMini" id="trafficIpClearSel" type="button">删除选中</button>
           </div>
           <div class="scrollBox" style="max-height:280px">
             <table id="trafficIpTable"></table>
@@ -1586,7 +1602,7 @@ const adminHtml = `<!doctype html>
         <div class="card2">
           <div class="row">
             <div><b>按客户端域名流量排行</b></div>
-            <button id="trafficDomainClearSel" type="button">删除选中</button>
+            <button class="btnMini" id="trafficDomainClearSel" type="button">删除选中</button>
           </div>
           <div class="scrollBox" style="max-height:280px">
             <table id="trafficDomainTable"></table>
@@ -1762,15 +1778,27 @@ const adminHtml = `<!doctype html>
         const version = String((data && data.appVersion) || '').trim()
         const buildTimeRaw = String((data && data.buildTime) || '').trim()
         const buildTimeFmt = buildTimeRaw ? fmtTs(buildTimeRaw) : ''
+        const runtimeKind = String((data && (data.runtime || data.runtimeKind)) || '').trim().toLowerCase()
         const nodeVersion = String((data && data.nodeVersion) || '').trim()
         const platform = String((data && data.platform) || '').trim()
         const arch = String((data && data.arch) || '').trim()
-        const runtime = [nodeVersion ? ('Node ' + nodeVersion.replace(/^v/, '')) : '', platform && arch ? (platform + '/' + arch) : ''].filter(Boolean).join(' · ')
+        const runtimeMain =
+          runtimeKind === 'docker'
+            ? 'Docker'
+            : runtimeKind === 'node'
+              ? 'Node'
+              : nodeVersion
+                ? 'Node'
+                : ''
+        const runtimeDetail = [nodeVersion ? ('Node ' + nodeVersion.replace(/^v/, '')) : '', platform && arch ? (platform + '/' + arch) : '']
+          .filter(Boolean)
+          .join(' · ')
+        const runtimeText = [runtimeMain, runtimeDetail].filter(Boolean).join(runtimeMain && runtimeDetail ? ' · ' : '')
 
         const rows = [
           ['版本', version, ''],
           ['发布时间', buildTimeFmt || buildTimeRaw, buildTimeFmt && buildTimeRaw && buildTimeFmt !== buildTimeRaw ? buildTimeRaw : ''],
-          ['运行环境', runtime, '']
+          ['运行环境', runtimeText, '']
         ]
           .map(([k, main, sub]) => [k, String(main || '').trim(), String(sub || '').trim()])
           .filter((x) => x[1])
@@ -1832,15 +1860,16 @@ const adminHtml = `<!doctype html>
           const created = b.createdAt ? fmtTs(b.createdAt) : ''
           const exp = b.expiresAt ? fmtTs(b.expiresAt) : '永久'
           const by = b.createdBy === 'auto' ? 'auto' : 'manual'
+          const typeLabel = b.type === 'domain' ? 'domain' : 'ip'
           return '<tr class="tr">' +
             '<td data-k="选">' + renderPick('data-ban="1" data-type="'+esc(b.type)+'" data-val="'+esc(b.value)+'"', '选择封禁', 'compact') + '</td>' +
-            '<td data-k="类型" class="mono">' + esc(b.type) + '</td>' +
+            '<td data-k="类型" class="mono">' + esc(typeLabel) + '</td>' +
             '<td data-k="值" class="mono">' + esc(b.value) + '</td>' +
             '<td data-k="原因">' + esc(b.reason || '') + '</td>' +
             '<td data-k="来源" class="mono">' + esc(by) + '</td>' +
             '<td data-k="封禁" class="mono">' + esc(created) + '</td>' +
             '<td data-k="解封" class="mono">' + esc(exp) + '</td>' +
-            '<td data-k="操作"><button data-act="unban" data-type="'+esc(b.type)+'" data-val="'+esc(b.value)+'">删除</button></td>' +
+            '<td data-k="操作"><button class="btnMini" data-act="unban" data-type="'+esc(b.type)+'" data-val="'+esc(b.value)+'">删除</button></td>' +
           '</tr>'
         }).join('')
         $('banTable').innerHTML = '<tr><th>' + renderPick('id="banAll"', '全选封禁', 'compact') + '</th><th>类型</th><th>值</th><th>原因</th><th>来源</th><th>封禁时间</th><th>解封时间</th><th></th></tr>' + rows
@@ -1852,7 +1881,7 @@ const adminHtml = `<!doctype html>
           '<td data-k="选">' + renderPick('data-topip="1" data-ip="'+esc(x.ip)+'"', '选择 IP', 'compact') + '</td>' +
           '<td data-k="IP" class="mono">' + esc(x.ip) + '</td>' +
           '<td data-k="统计" class="mono">req=' + esc(x.requests) + ' scan=' + esc(x.scanHits) + '</td>' +
-          '<td data-k="操作" class="row" style="gap:10px;justify-content:flex-end"><button data-act="banip" data-ip="'+esc(x.ip)+'">封禁</button><button data-act="delip" data-ip="'+esc(x.ip)+'">删除</button></td>' +
+          '<td data-k="操作" class="row" style="gap:10px;justify-content:flex-end"><button class="btnMini" data-act="banip" data-ip="'+esc(x.ip)+'">封禁</button><button class="btnMini" data-act="delip" data-ip="'+esc(x.ip)+'">删除</button></td>' +
           '</tr>'
         ).join('')
         $('topIp').innerHTML = '<tr><th>' + renderPick('id="topIpAll"', '全选 IP', 'compact') + '</th><th>IP</th><th>统计</th><th></th></tr>' + rows
@@ -1864,7 +1893,7 @@ const adminHtml = `<!doctype html>
           '<td data-k="选">' + renderPick('data-topdomain="1" data-domain="'+esc(x.domain)+'"', '选择域名', 'compact') + '</td>' +
           '<td data-k="域名" class="mono">' + esc(x.domain) + '</td>' +
           '<td data-k="统计" class="mono">req=' + esc(x.requests) + '</td>' +
-          '<td data-k="操作" class="row" style="gap:10px;justify-content:flex-end"><button data-act="bandomain" data-domain="'+esc(x.domain)+'">封禁</button><button data-act="deldomain" data-domain="'+esc(x.domain)+'">删除</button></td>' +
+          '<td data-k="操作" class="row" style="gap:10px;justify-content:flex-end"><button class="btnMini" data-act="bandomain" data-domain="'+esc(x.domain)+'">封禁</button><button class="btnMini" data-act="deldomain" data-domain="'+esc(x.domain)+'">删除</button></td>' +
           '</tr>'
         ).join('')
         $('topDomain').innerHTML = '<tr><th>' + renderPick('id="topDomainAll"', '全选域名', 'compact') + '</th><th>域名</th><th>统计</th><th></th></tr>' + rows
@@ -1880,7 +1909,7 @@ const adminHtml = `<!doctype html>
           '<td data-k="域名" class="mono">' + esc(e.domain || '') + '</td>' +
           '<td data-k="路径" class="mono">' + esc(e.path || '') + '</td>' +
           '<td data-k="详情">' + esc(e.detail || '') + '</td>' +
-          '<td data-k="操作">' + (e.id ? '<button data-act="delevent" data-id="'+esc(e.id)+'">删除</button>' : '') + '</td>' +
+          '<td data-k="操作">' + (e.id ? '<button class="btnMini" data-act="delevent" data-id="'+esc(e.id)+'">删除</button>' : '') + '</td>' +
           '</tr>'
         ).join('')
         $('eventTable').innerHTML = '<tr><th>' + renderPick('id="eventAll"', '全选事件', 'compact') + '</th><th>时间</th><th>类型</th><th>IP</th><th>域名</th><th>路径</th><th>详情</th><th></th></tr>' + rows
@@ -1895,6 +1924,8 @@ const adminHtml = `<!doctype html>
         $('scanEnabled').checked = !!s.scan.enabled
         $('scanWindow').value = String(s.scan.windowSeconds || '')
         $('scanMax').value = String(s.scan.maxHits || '')
+        $('instantBanPaths').value = String((s.banRules && s.banRules.instantPaths) || '')
+        $('scanPaths').value = String((s.banRules && s.banRules.scanPaths) || '')
         $('refEnabled').checked = !!s.refererAbuse.enabled
         $('refWindow').value = String(s.refererAbuse.windowSeconds || '')
         $('refMax').value = String(s.refererAbuse.maxRequests || '')
@@ -2152,6 +2183,7 @@ const adminHtml = `<!doctype html>
           banSeconds: Number($('banSecondsSet').value || 0) || undefined,
           rate: { enabled: $('rateEnabled').checked, windowSeconds: Number($('rateWindow').value || 0) || undefined, maxRequests: Number($('rateMax').value || 0) || undefined },
           scan: { enabled: $('scanEnabled').checked, windowSeconds: Number($('scanWindow').value || 0) || undefined, maxHits: Number($('scanMax').value || 0) || undefined },
+          banRules: { instantPaths: String($('instantBanPaths').value || ''), scanPaths: String($('scanPaths').value || '') },
           refererAbuse: { enabled: $('refEnabled').checked, windowSeconds: Number($('refWindow').value || 0) || undefined, maxRequests: Number($('refMax').value || 0) || undefined },
           registrationEnabled: $('regEnabled').checked,
           cleanup: { enabled: $('cleanupEnabled').checked, eventRetentionDays: Number($('eventKeepDays').value || 0) || undefined, topRetentionDays: Number($('topKeepDays').value || 0) || undefined },
@@ -2368,6 +2400,21 @@ const requireCsrf = (req: Request) => {
   const csrfCookie = cookies['jsd_csrf'] ?? ''
   const csrfHeader = req.headers.get('x-csrf-token') ?? ''
   return !!csrfCookie && csrfCookie === csrfHeader
+}
+
+const detectRuntime = () => {
+  const env = process.env as any
+  const containerFlag = String(env?.container || env?.CONTAINER || '').toLowerCase()
+  if (containerFlag.includes('docker')) return 'docker'
+  if (existsSync('/.dockerenv')) return 'docker'
+  if (existsSync('/run/.containerenv')) return 'docker'
+  try {
+    if (existsSync('/proc/1/cgroup')) {
+      const cg = readFileSync('/proc/1/cgroup', 'utf8')
+      if (/(docker|kubepods|containerd|podman)/i.test(cg)) return 'docker'
+    }
+  } catch {}
+  return 'node'
 }
 
 export const createNodeApp = (deps: { adminStore: AdminDbStore; auth: AuthDb }) => {
@@ -2623,6 +2670,7 @@ export const createNodeApp = (deps: { adminStore: AdminDbStore; auth: AuthDb }) 
     return c.json({
       appVersion: String(env.APP_VERSION || ''),
       buildTime: String(env.BUILD_TIME || ''),
+      runtime: detectRuntime(),
       nodeVersion: String(process.version || ''),
       platform: String(process.platform || ''),
       arch: String(process.arch || '')

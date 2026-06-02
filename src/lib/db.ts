@@ -72,6 +72,8 @@ const migrate = (db: any) => {
       scan_enabled INTEGER NOT NULL,
       scan_window_seconds INTEGER NOT NULL,
       scan_max_hits INTEGER NOT NULL,
+      instant_ban_paths TEXT NOT NULL DEFAULT '',
+      scan_paths TEXT NOT NULL DEFAULT '',
       ref_enabled INTEGER NOT NULL,
       ref_window_seconds INTEGER NOT NULL,
       ref_max_requests INTEGER NOT NULL,
@@ -191,7 +193,9 @@ const migrate = (db: any) => {
     `ALTER TABLE security_settings ADD COLUMN events_retention_days INTEGER NOT NULL DEFAULT 14`,
     `ALTER TABLE security_settings ADD COLUMN top_retention_days INTEGER NOT NULL DEFAULT 7`,
     `ALTER TABLE security_settings ADD COLUMN traffic_enabled INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE security_settings ADD COLUMN traffic_retention_days INTEGER NOT NULL DEFAULT 30`
+    `ALTER TABLE security_settings ADD COLUMN traffic_retention_days INTEGER NOT NULL DEFAULT 30`,
+    `ALTER TABLE security_settings ADD COLUMN instant_ban_paths TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE security_settings ADD COLUMN scan_paths TEXT NOT NULL DEFAULT ''`
   ]
   for (const sql of alters) {
     try {

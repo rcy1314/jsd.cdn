@@ -1,12 +1,12 @@
 # jsDelivr CDN 加速访问服务（jsd-cdn-accelerator）
 
-把常见的 **GitHub / npm / unpkg** 资源链接解析为 **jsDelivr CDN** 资源，并提供多种输出方式（直连/代理/跳转）：
+## 介绍
+
+本服务把常见的 **GitHub / npm / unpkg** 资源链接解析为 **jsDelivr CDN** 资源，并提供多种输出方式（直连/代理/跳转）：
 
 - **直连（同路径，推荐）**：`/gh/...`、`/npm/...`（路径保持一致，适合"把 cdn.jsdelivr.net 换成你的域名"的场景）
 - **Proxy（兼容）**：`/cdn?url=...`（服务端代理返回内容，适合图床直链、跨域、统一域名、可控缓存）
 - **Redirect（更轻）**：`/r?url=...`（302 跳转到 jsDelivr）
-
-项目提供一个贴纸风格首页，用于输入链接并一键生成可用的加速 URL。
 
 jsDelivr 官网：`https://www.jsdelivr.com/`；其静态文件 CDN 域名主要为 `cdn.jsdelivr.net` / `fastly.jsdelivr.net`。
 
@@ -36,7 +36,7 @@ jsDelivr 官网：`https://www.jsdelivr.com/`；其静态文件 CDN 域名主要
 
 ---
 
-## 在线使用
+## 使用
 
 部署后，直接访问首页：
 
@@ -327,8 +327,8 @@ docker login
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --build-arg VERSION=v1.5 \
-  -t noise233/jsd-noise:v1.5 \
+  --build-arg VERSION=v1.6 \
+  -t noise233/jsd-noise:v1.6 \
   -t noise233/jsd-noise:latest \
   --push .
 ```
@@ -542,4 +542,12 @@ docker run --rm \
 
 - GitHub Releases 的 `releases/download/...` 链接不支持直接转换为 jsDelivr（jsDelivr 机制限制）。
 - Proxy 模式仅代理 jsDelivr 官方域名，避免成为任意代理。
-- 若你使用 `main/master/latest` 等不稳定 ref，Proxy 默认短缓存；建议对需要长期缓存的资源使用 commit sha 或版本号。 2026@ [Noise](https://www.noisework.cn/)
+- 若你使用 `main/master/latest` 等不稳定 ref，Proxy 默认短缓存；建议对需要长期缓存的资源使用 commit sha 或版本号。 
+
+## 黑名单
+
+本服务最早开始于2024年，期间遭受到恶意诽谤、攻击，以下域名及用户本服务永久不欢迎，看到会直接拉黑
+
+用户：@rong6、@yanjie233、@xiaojiang233
+
+域名：https://xiaojiang233.top、https://rong6.cn、https://yanjie233.top、https://nohello.net/zh-cn/、https://cloud.7so.top、https://pan.7so.top、https://gingko.icu、https://tz.yanjie233.me、https://yanshijie.fun、https://cloud.7so.top

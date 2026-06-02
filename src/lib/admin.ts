@@ -22,6 +22,7 @@ export type SecuritySettings = {
   banSeconds: number
   rate: { enabled: boolean; windowSeconds: number; maxRequests: number }
   scan: { enabled: boolean; windowSeconds: number; maxHits: number }
+  banRules: { instantPaths: string; scanPaths: string }
   refererAbuse: { enabled: boolean; windowSeconds: number; maxRequests: number }
   registrationEnabled: boolean
   cleanup: { enabled: boolean; eventRetentionDays: number; topRetentionDays: number }
@@ -96,6 +97,7 @@ const DEFAULT_SETTINGS: SecuritySettings = {
   banSeconds: 3600,
   rate: { enabled: true, windowSeconds: 60, maxRequests: 240 },
   scan: { enabled: true, windowSeconds: 60, maxHits: 8 },
+  banRules: { instantPaths: '', scanPaths: '' },
   refererAbuse: { enabled: true, windowSeconds: 60, maxRequests: 180 },
   registrationEnabled: false,
   cleanup: { enabled: true, eventRetentionDays: 14, topRetentionDays: 7 },
@@ -399,6 +401,10 @@ const normalizePersisted = (raw: any): PersistedState => {
       enabled: !!settings.scan?.enabled,
       windowSeconds: clamp(Number(settings.scan?.windowSeconds ?? DEFAULT_SETTINGS.scan.windowSeconds), 10, 3600),
       maxHits: clamp(Number(settings.scan?.maxHits ?? DEFAULT_SETTINGS.scan.maxHits), 1, 1000)
+    },
+    banRules: {
+      instantPaths: typeof settings.banRules?.instantPaths === 'string' ? settings.banRules.instantPaths : DEFAULT_SETTINGS.banRules.instantPaths,
+      scanPaths: typeof settings.banRules?.scanPaths === 'string' ? settings.banRules.scanPaths : DEFAULT_SETTINGS.banRules.scanPaths
     },
     refererAbuse: {
       enabled: !!settings.refererAbuse?.enabled,
@@ -913,6 +919,10 @@ export class AdminStore {
             ? clamp(Number(next.scan.windowSeconds), 10, 3600)
             : clamp(cur.scan.windowSeconds, 10, 3600),
         maxHits: next.scan?.maxHits != null ? clamp(Number(next.scan.maxHits), 1, 1000) : clamp(cur.scan.maxHits, 1, 1000)
+      },
+      banRules: {
+        instantPaths: next.banRules?.instantPaths != null ? String(next.banRules.instantPaths) : String(cur.banRules.instantPaths || ''),
+        scanPaths: next.banRules?.scanPaths != null ? String(next.banRules.scanPaths) : String(cur.banRules.scanPaths || '')
       },
       refererAbuse: {
         enabled: next.refererAbuse?.enabled != null ? !!next.refererAbuse.enabled : cur.refererAbuse.enabled,

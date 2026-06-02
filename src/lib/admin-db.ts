@@ -114,6 +114,33 @@ const isLocalDomain = (domain: string) => {
   return false
 }
 
+const normalizePathPrefix = (raw: string) => {
+  const v = String(raw ?? '').trim()
+  if (!v) return ''
+  if (!v.startsWith('/')) return ''
+  const out = v.replace(/\s+/g, '').toLowerCase()
+  if (out.length < 2 || out.length > 160) return ''
+  return out
+}
+
+const parsePathPrefixList = (raw: string) => {
+  const text = String(raw ?? '').trim()
+  if (!text) return []
+  const parts = text
+    .split(/\r?\n|,|;/g)
+    .map((s) => normalizePathPrefix(s))
+    .filter(Boolean)
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const p of parts) {
+    if (seen.has(p)) continue
+    seen.add(p)
+    out.push(p)
+    if (out.length >= 200) break
+  }
+  return out
+}
+
 // 高危路径：单次命中立即封禁（无需累计次数）
 const INSTANT_BAN_PATHS = [
   '/.env',
@@ -208,11 +235,20 @@ export class AdminDbStore {
     if (this.bansTsNormalized) return
     this.bansTsNormalized = true
     try {
-      const rows = this.db.prepare('SELECT type, value, created_at, expires_at FROM bans').all() as any[]
-      const upd = this.db.prepare('UPDATE bans SET created_at=?, expires_at=? WHERE type=? AND value=?')
+      const rows = this.db.prepare('SELECT type, value, reason, created_at, created_by, expires_at FROM bans').all() as any[]
+      const upsert = this.db.prepare(
+        'INSERT INTO bans (type, value, reason, created_at, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(type, value) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at, created_by=excluded.created_by, expires_at=excluded.expires_at'
+      )
+      const del = this.db.prepare('DELETE FROM bans WHERE type=? AND value=?')
       for (const r of rows) {
-        const type = r.type === 'domain' ? 'domain' : 'ip'
-        const value = String(r.value ?? '')
+        const oldType: BanType = r.type === 'domain' ? 'domain' : 'ip'
+        const oldValue = String(r.value ?? '')
+        const type: BanType = oldType
+        const value = type === 'ip' ? normalizeIp(oldValue).toLowerCase() : String(oldValue).trim().toLowerCase()
+        if (!value) {
+          del.run(oldType, oldValue)
+          continue
+        }
         const createdAtRaw = Number(r.created_at) || 0
         const createdAtMs = toEpochMs(createdAtRaw) || createdAtRaw
         const expiresAtRaw = r.expires_at != null ? Number(r.expires_at) || 0 : 0
@@ -221,22 +257,26 @@ export class AdminDbStore {
         const nextExpires = r.expires_at == null ? null : expiresAtMs || expiresAtRaw || null
         const curCreated = createdAtRaw || 0
         const curExpires = r.expires_at == null ? null : expiresAtRaw || null
-        if (nextCreated !== curCreated || nextExpires !== curExpires) upd.run(nextCreated, nextExpires, type, value)
+        const reason = typeof r.reason === 'string' ? r.reason : null
+        const createdBy = r.created_by === 'auto' ? 'auto' : 'manual'
+        upsert.run(type, value, reason, nextCreated, createdBy, nextExpires)
+        if (oldType !== type || oldValue !== value) del.run(oldType, oldValue)
       }
     } catch {}
   }
 
   private addBanImmediate(input: { type: BanType; value: string; reason?: string; seconds?: number; createdBy?: 'manual' | 'auto' }) {
     const type: BanType = input.type
-    const rawValue = String(input.value ?? '').trim().toLowerCase()
-    if (type === 'ip' && !isProbablyIp(rawValue)) return { ok: false as const, error: 'invalid_ip' as const }
-    if (type === 'domain' && !isProbablyDomain(rawValue)) return { ok: false as const, error: 'invalid_domain' as const }
+    const rawValue = String(input.value ?? '').trim()
+    const value = type === 'ip' ? normalizeIp(rawValue).toLowerCase() : rawValue.toLowerCase()
+    if (type === 'ip' && !isProbablyIp(value)) return { ok: false as const, error: 'invalid_ip' as const }
+    if (type === 'domain' && !isProbablyDomain(value)) return { ok: false as const, error: 'invalid_domain' as const }
     const secondsInput = typeof input.seconds === 'number' ? input.seconds : this.getSettings().banSeconds
     const expiresAt =
       typeof secondsInput === 'number' && secondsInput > 0 ? now() + clamp(Math.floor(secondsInput), 60, 60 * 60 * 24 * 30) * 1000 : undefined
     const entry: BanEntry = {
       type,
-      value: rawValue,
+      value,
       reason: input.reason?.trim() || undefined,
       createdAt: now(),
       createdBy: input.createdBy === 'auto' ? 'auto' : 'manual',
@@ -249,8 +289,8 @@ export class AdminDbStore {
       this.pushEvent({
         ts: now(),
         kind: entry.createdBy === 'auto' ? 'auto_ban' : 'manual_ban',
-        ip: type === 'ip' ? rawValue : undefined,
-        domain: type === 'domain' ? rawValue : undefined,
+        ip: type === 'ip' ? value : undefined,
+        domain: type === 'domain' ? value : undefined,
         detail: entry.reason
       })
       return { ok: true as const, entry }
@@ -330,7 +370,7 @@ export class AdminDbStore {
       const cutoff = now() - topKeepDays * 24 * 60 * 60 * 1000
       const ipRows = this.db.prepare('SELECT ip, window_start, requests, scan_hits FROM top_ip_stats WHERE window_start >= ?').all(cutoff) as any[]
       for (const r of ipRows) {
-        const ip = normalizeIp(String(r.ip ?? ''))
+        const ip = normalizeIp(String(r.ip ?? '')).toLowerCase()
         const windowStart = Number(r.window_start)
         if (!ip || !Number.isFinite(windowStart)) continue
         this.ipStats.set(ip, { windowStart, requests: Number(r.requests) || 0, scanHits: Number(r.scan_hits) || 0 })
@@ -391,6 +431,8 @@ export class AdminDbStore {
           scan_enabled,
           scan_window_seconds,
           scan_max_hits,
+          instant_ban_paths,
+          scan_paths,
           ref_enabled,
           ref_window_seconds,
           ref_max_requests,
@@ -425,6 +467,10 @@ export class AdminDbStore {
         enabled: !!row?.scan_enabled,
         windowSeconds: clamp(Number(row?.scan_window_seconds ?? 60), 10, 3600),
         maxHits: clamp(Number(row?.scan_max_hits ?? 8), 1, 1000)
+      },
+      banRules: {
+        instantPaths: typeof row?.instant_ban_paths === 'string' ? row.instant_ban_paths : '',
+        scanPaths: typeof row?.scan_paths === 'string' ? row.scan_paths : ''
       },
       refererAbuse: {
         enabled: !!row?.ref_enabled,
@@ -984,6 +1030,11 @@ export class AdminDbStore {
         windowSeconds: next.scan?.windowSeconds != null ? clamp(Number(next.scan.windowSeconds), 10, 3600) : cur.scan.windowSeconds,
         maxHits: next.scan?.maxHits != null ? clamp(Number(next.scan.maxHits), 1, 1000) : cur.scan.maxHits
       },
+      banRules: {
+        instantPaths:
+          next.banRules?.instantPaths != null ? String(next.banRules.instantPaths).slice(0, 8000) : String(cur.banRules?.instantPaths || ''),
+        scanPaths: next.banRules?.scanPaths != null ? String(next.banRules.scanPaths).slice(0, 8000) : String(cur.banRules?.scanPaths || '')
+      },
       refererAbuse: {
         enabled: next.refererAbuse?.enabled != null ? !!next.refererAbuse.enabled : cur.refererAbuse.enabled,
         windowSeconds:
@@ -1020,6 +1071,8 @@ export class AdminDbStore {
           scan_enabled=?,
           scan_window_seconds=?,
           scan_max_hits=?,
+          instant_ban_paths=?,
+          scan_paths=?,
           ref_enabled=?,
           ref_window_seconds=?,
           ref_max_requests=?,
@@ -1040,6 +1093,8 @@ export class AdminDbStore {
         merged.scan.enabled ? 1 : 0,
         merged.scan.windowSeconds,
         merged.scan.maxHits,
+        merged.banRules.instantPaths,
+        merged.banRules.scanPaths,
         merged.refererAbuse.enabled ? 1 : 0,
         merged.refererAbuse.windowSeconds,
         merged.refererAbuse.maxRequests,
@@ -1080,7 +1135,8 @@ export class AdminDbStore {
     const out: { type: BanType; value: string }[] = []
     for (const item of input) {
       const type: BanType = item?.type === 'domain' ? 'domain' : 'ip'
-      const value = String(item?.value ?? '').trim().toLowerCase()
+      const raw = String(item?.value ?? '').trim()
+      const value = type === 'ip' ? normalizeIp(raw).toLowerCase() : raw.toLowerCase()
       if (!value) continue
       out.push({ type, value })
     }
@@ -1120,15 +1176,16 @@ export class AdminDbStore {
   async addBan(input: { type: BanType; value: string; reason?: string; seconds?: number; createdBy?: 'manual' | 'auto' }) {
     await this.init()
     const type: BanType = input.type
-    const rawValue = String(input.value ?? '').trim().toLowerCase()
-    if (type === 'ip' && !isProbablyIp(rawValue)) return { ok: false as const, error: 'invalid_ip' as const }
-    if (type === 'domain' && !isProbablyDomain(rawValue)) return { ok: false as const, error: 'invalid_domain' as const }
+    const rawValue = String(input.value ?? '').trim()
+    const value = type === 'ip' ? normalizeIp(rawValue).toLowerCase() : rawValue.toLowerCase()
+    if (type === 'ip' && !isProbablyIp(value)) return { ok: false as const, error: 'invalid_ip' as const }
+    if (type === 'domain' && !isProbablyDomain(value)) return { ok: false as const, error: 'invalid_domain' as const }
     const secondsInput = typeof input.seconds === 'number' ? input.seconds : this.getSettings().banSeconds
     const expiresAt =
       typeof secondsInput === 'number' && secondsInput > 0 ? now() + clamp(Math.floor(secondsInput), 60, 60 * 60 * 24 * 30) * 1000 : undefined
     const entry: BanEntry = {
       type,
-      value: rawValue,
+      value,
       reason: input.reason?.trim() || undefined,
       createdAt: now(),
       createdBy: input.createdBy === 'auto' ? 'auto' : 'manual',
@@ -1140,8 +1197,8 @@ export class AdminDbStore {
     this.pushEvent({
       ts: now(),
       kind: entry.createdBy === 'auto' ? 'auto_ban' : 'manual_ban',
-      ip: type === 'ip' ? rawValue : undefined,
-      domain: type === 'domain' ? rawValue : undefined,
+      ip: type === 'ip' ? value : undefined,
+      domain: type === 'domain' ? value : undefined,
       detail: entry.reason
     })
     return { ok: true as const, entry }
@@ -1149,7 +1206,8 @@ export class AdminDbStore {
 
   async removeBan(type: BanType, value: string) {
     await this.init()
-    const v = String(value ?? '').trim().toLowerCase()
+    const raw = String(value ?? '').trim()
+    const v = type === 'ip' ? normalizeIp(raw).toLowerCase() : raw.toLowerCase()
     const res = this.db.prepare('DELETE FROM bans WHERE type=? AND value=?').run(type, v)
     if (Number(res?.changes ?? 0) > 0) {
       this.pushEvent({ ts: now(), kind: 'unban', ip: type === 'ip' ? v : undefined, domain: type === 'domain' ? v : undefined })
@@ -1171,7 +1229,7 @@ export class AdminDbStore {
     const settings = this.getSettings()
     if (!settings.enabled) return { blocked: false as const }
     this.maybeCleanup(now())
-    const ipRaw = normalizeIp(params.ip)
+    const ipRaw = normalizeIp(params.ip).toLowerCase()
     const ip = isLoopbackIp(ipRaw) ? '' : isProbablyIp(ipRaw) ? ipRaw : ''
     const domainRaw = String(params.domain ?? '').trim().toLowerCase()
     const domain = isLocalDomain(domainRaw) ? '' : isProbablyDomain(domainRaw) ? domainRaw : ''
@@ -1205,9 +1263,12 @@ export class AdminDbStore {
 
     if (settings.scan.enabled && ip) {
       const lowered = path.toLowerCase()
+      const instantList =
+        String(settings.banRules?.instantPaths ?? '').trim() !== '' ? parsePathPrefixList(settings.banRules.instantPaths) : INSTANT_BAN_PATHS
+      const scanList = String(settings.banRules?.scanPaths ?? '').trim() !== '' ? parsePathPrefixList(settings.banRules.scanPaths) : SCAN_PATHS
 
       // 高危路径：单次命中立即封禁
-      const instantHit = INSTANT_BAN_PATHS.some((p) => lowered.startsWith(p))
+      const instantHit = instantList.some((p) => lowered.startsWith(p))
       if (instantHit) {
         this.addBanImmediate({ type: 'ip', value: ip, reason: `instant_ban:${path}`, seconds: settings.banSeconds, createdBy: 'auto' })
         this.pushBlockedEvent({ ts, kind: 'blocked', ip, domain, path, detail: 'auto_instant_ban' })
@@ -1215,7 +1276,7 @@ export class AdminDbStore {
       }
 
       // 通用扫描路径：累计命中达阈值后封禁
-      const hit = SCAN_PATHS.some((p) => lowered.startsWith(p))
+      const hit = scanList.some((p) => lowered.startsWith(p))
       if (hit) {
         const st = this.ipStats.get(ip) ?? { windowStart: ts, requests: 0, scanHits: 0 }
         if (ts - st.windowStart > settings.scan.windowSeconds * 1000) {
@@ -1264,7 +1325,7 @@ export class AdminDbStore {
 
   private pushBlockedEvent(e: SecurityEvent) {
     const ts = typeof e.ts === 'number' ? e.ts : now()
-    const ip = e.ip ? normalizeIp(e.ip) : ''
+    const ip = e.ip ? normalizeIp(e.ip).toLowerCase() : ''
     const domain = e.domain ? String(e.domain).trim().toLowerCase() : ''
     const path = e.path ? String(e.path) : ''
     const detail = e.detail ? String(e.detail) : ''
@@ -1295,7 +1356,7 @@ export class AdminDbStore {
       for (const r of rows) {
         const ts = toEpochMs(Number(r.ts) || 0)
         if (!ts) continue
-        const ip = r.ip != null ? normalizeIp(String(r.ip)) : ''
+        const ip = r.ip != null ? normalizeIp(String(r.ip)).toLowerCase() : ''
         const domain = r.domain != null ? String(r.domain).trim().toLowerCase() : ''
         if (ip) {
           const key = `ip:${ip}`
@@ -1320,7 +1381,7 @@ export class AdminDbStore {
       for (const r of rows) {
         const ts = toEpochMs(Number(r.ts) || 0)
         if (!ts) continue
-        const ip = r.ip != null ? normalizeIp(String(r.ip)) : ''
+        const ip = r.ip != null ? normalizeIp(String(r.ip)).toLowerCase() : ''
         const domain = r.domain != null ? String(r.domain).trim().toLowerCase() : ''
         const detail = r.detail != null ? String(r.detail) : ''
         if (!detail.startsWith('auto_')) continue
@@ -1341,7 +1402,7 @@ export class AdminDbStore {
       for (const r of rows) {
         const ts = toEpochMs(Number(r.ts) || 0)
         if (!ts) continue
-        const ip = r.ip != null ? normalizeIp(String(r.ip)) : ''
+        const ip = r.ip != null ? normalizeIp(String(r.ip)).toLowerCase() : ''
         const domain = r.domain != null ? String(r.domain).trim().toLowerCase() : ''
         const detail = r.detail != null ? String(r.detail) : ''
         const reason = detail || 'auto_ban'
