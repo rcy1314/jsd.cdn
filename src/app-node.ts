@@ -1305,15 +1305,18 @@ const adminHtml = `<!doctype html>
       .tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;min-width:0}
       .quickActions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;min-width:0}
       @media (max-width: 520px){
+        .wrap{padding:16px 12px 0;padding-left:max(12px, env(safe-area-inset-left));padding-right:max(12px, env(safe-area-inset-right));padding-top:max(16px, env(safe-area-inset-top));padding-bottom:env(safe-area-inset-bottom)}
+        .card{padding:14px}
+        .card2{padding:14px}
         .tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
         .quickActions{grid-template-columns:repeat(2,minmax(0,1fr))}
         .top .card .hint{-webkit-line-clamp:4}
         table{border-spacing:0 10px}
         table tr:first-child{display:none}
         .tr{display:block}
-        .tr td{display:flex;align-items:flex-start;justify-content:flex-start;flex-wrap:wrap;gap:10px;padding:10px 12px}
+        .tr td{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;flex-wrap:nowrap;gap:6px;padding:10px 12px}
         .tr td[colspan]{display:block}
-        .tr td::before{content:attr(data-k);font-weight:900;color:var(--muted);flex:0 0 auto;max-width:46%}
+        .tr td::before{content:attr(data-k);font-weight:900;color:var(--muted);flex:0 0 auto;max-width:100%}
         .tr td[colspan]::before{content:""}
         .tr td:first-child{border-top-left-radius:18px;border-top-right-radius:18px;border-bottom-left-radius:0}
         .tr td:last-child{border-bottom-left-radius:18px;border-bottom-right-radius:18px;border-top-right-radius:0}
@@ -1321,6 +1324,7 @@ const adminHtml = `<!doctype html>
         .formRow > input:not([type="file"]),.formRow > select,.formRow > textarea{flex-basis:100%}
         .formRow > button{flex-basis:100%}
         .formRow > .switch,.formRow > .hint{flex-basis:100%}
+        .scrollBox{max-height:none;overflow:visible;contain:none}
         textarea{min-height:120px}
       }
       .tab,.quickLink,.quickBtn{border:var(--border);border-radius:18px;padding:11px 12px;background:var(--paper);box-shadow:0 8px 18px rgba(15,23,42,.1);font-weight:900;font-size:12px;color:var(--ink);min-height:48px}

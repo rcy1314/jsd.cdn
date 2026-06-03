@@ -327,8 +327,8 @@ docker login
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  --build-arg VERSION=v1.6 \
-  -t noise233/jsd-noise:v1.6 \
+  --build-arg VERSION=v1.7 \
+  -t noise233/jsd-noise:v1.7 \
   -t noise233/jsd-noise:latest \
   --push .
 ```

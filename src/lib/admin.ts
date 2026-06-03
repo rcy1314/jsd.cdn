@@ -174,14 +174,22 @@ const isLocalDomain = (domain: string) => {
   return false
 }
 
+const pickFirstIpFromListHeader = (raw: string) => {
+  const first = String(raw ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)[0]
+  return normalizeIp(first ?? '')
+}
+
 export const getClientIp = (req: Request) => {
   const h = req.headers
   return (
     normalizeIp(h.get('cf-connecting-ip') ?? '') ||
     normalizeIp(h.get('fly-client-ip') ?? '') ||
-    normalizeIp(h.get('x-client-ip') ?? '') ||
-    normalizeIp(h.get('x-real-ip') ?? '') ||
-    normalizeIp(h.get('x-forwarded-for') ?? '') ||
+    pickFirstIpFromListHeader(h.get('x-client-ip') ?? '') ||
+    pickFirstIpFromListHeader(h.get('x-real-ip') ?? '') ||
+    pickFirstIpFromListHeader(h.get('x-forwarded-for') ?? '') ||
     (() => {
       const raw = String(h.get('forwarded') ?? '').trim()
       if (!raw) return ''

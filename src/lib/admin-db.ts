@@ -286,13 +286,15 @@ export class AdminDbStore {
       this.db
         .prepare('INSERT INTO bans (type, value, reason, created_at, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(type, value) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at, created_by=excluded.created_by, expires_at=excluded.expires_at')
         .run(entry.type, entry.value, entry.reason ?? null, entry.createdAt, entry.createdBy, entry.expiresAt ?? null)
-      this.pushEvent({
-        ts: now(),
-        kind: entry.createdBy === 'auto' ? 'auto_ban' : 'manual_ban',
-        ip: type === 'ip' ? value : undefined,
-        domain: type === 'domain' ? value : undefined,
-        detail: entry.reason
-      })
+      if (entry.createdBy !== 'auto') {
+        this.pushEvent({
+          ts: now(),
+          kind: 'manual_ban',
+          ip: type === 'ip' ? value : undefined,
+          domain: type === 'domain' ? value : undefined,
+          detail: entry.reason
+        })
+      }
       return { ok: true as const, entry }
     } catch {
       return { ok: false as const, error: 'db_error' as const }
@@ -891,6 +893,7 @@ export class AdminDbStore {
         path: r.path != null ? String(r.path) : undefined,
         detail: r.detail != null ? String(r.detail) : undefined
       }))
+      .filter((e) => e.kind !== 'auto_ban')
   }
 
   async deleteEvents(ids: number[]) {
@@ -1194,13 +1197,15 @@ export class AdminDbStore {
     this.db
       .prepare('INSERT INTO bans (type, value, reason, created_at, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(type, value) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at, created_by=excluded.created_by, expires_at=excluded.expires_at')
       .run(entry.type, entry.value, entry.reason ?? null, entry.createdAt, entry.createdBy, entry.expiresAt ?? null)
-    this.pushEvent({
-      ts: now(),
-      kind: entry.createdBy === 'auto' ? 'auto_ban' : 'manual_ban',
-      ip: type === 'ip' ? value : undefined,
-      domain: type === 'domain' ? value : undefined,
-      detail: entry.reason
-    })
+    if (entry.createdBy !== 'auto') {
+      this.pushEvent({
+        ts: now(),
+        kind: 'manual_ban',
+        ip: type === 'ip' ? value : undefined,
+        domain: type === 'domain' ? value : undefined,
+        detail: entry.reason
+      })
+    }
     return { ok: true as const, entry }
   }
 
