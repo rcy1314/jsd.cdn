@@ -1462,6 +1462,11 @@ const adminHtml = `<!doctype html>
           <div class="row">
             <div><b>封禁列表</b></div>
             <div class="row" style="gap:10px">
+              <select id="banView">
+                <option value="all">全部</option>
+                <option value="manual">手动</option>
+                <option value="auto">自动</option>
+              </select>
               <div class="hint mono" id="banCount"></div>
               <button class="btnMini" id="banDeleteSel" type="button">删除选中</button>
             </div>
@@ -1479,6 +1484,16 @@ const adminHtml = `<!doctype html>
           <div class="scrollBox">
             <table id="banTable"></table>
           </div>
+          <div class="row" style="margin-top:10px;justify-content:space-between;align-items:flex-end">
+            <div style="flex:1;min-width:0">
+              <label for="banRulesText">封禁规则（手动，可批量编辑并保存）</label>
+              <div class="hint">每行一条：ip:1.2.3.4 @3600 或 domain:example.com @0；@ 后为封禁秒数（0=永久）；# 后为备注。保存后会同步为手动封禁条目。</div>
+            </div>
+            <button class="btnMini" id="saveBanRules" type="button">保存规则</button>
+          </div>
+          <textarea id="banRulesText" class="mono" placeholder="ip:1.2.3.4 @3600 # 恶意访问&#10;domain:example.com @0 # Referer 滥用"></textarea>
+          <div id="banRulesMsg" class="hint"></div>
+          <div id="banMsg" class="hint"></div>
         </div>
 
         <div class="card2">
@@ -1486,7 +1501,7 @@ const adminHtml = `<!doctype html>
           <div class="hint">建议先开启：扫描识别 + 频率限制 + Referer 滥用识别。</div>
           <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="secEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">启用安全策略</span></label>
-            <input id="banSecondsSet" placeholder="自动封禁秒数（默认 3600）" />
+            <input id="banSecondsSet" placeholder="自动封禁秒数（默认 7200；范围 7200-172800）" />
           </div>
           <div class="row formRow" style="margin-top:10px">
             <label class="switch"><input id="rateEnabled" type="checkbox" /><span class="slider" aria-hidden="true"></span><span class="txt">频率限制</span></label>
@@ -1858,9 +1873,14 @@ const adminHtml = `<!doctype html>
         location.href = '/admin/login'
       })
 
+      const getBanView = () => { try { return localStorage.getItem('jsd_ban_view') || 'all' } catch { return 'all' } }
+      const setBanView = (v) => { try { localStorage.setItem('jsd_ban_view', v) } catch {} }
+      let lastOverview = null
+
       const renderBans = (bans) => {
-        $('banCount').textContent = '条目：' + bans.length
-        const rows = bans.map((b) => {
+        const list = Array.isArray(bans) ? bans : []
+        $('banCount').textContent = '条目：' + list.length
+        const rows = list.map((b) => {
           const created = b.createdAt ? fmtTs(b.createdAt) : ''
           const exp = b.expiresAt ? fmtTs(b.expiresAt) : '永久'
           const by = b.createdBy === 'auto' ? 'auto' : 'manual'
@@ -1876,7 +1896,59 @@ const adminHtml = `<!doctype html>
             '<td data-k="操作"><button class="btnMini" data-act="unban" data-type="'+esc(b.type)+'" data-val="'+esc(b.value)+'">删除</button></td>' +
           '</tr>'
         }).join('')
-        $('banTable').innerHTML = '<tr><th>' + renderPick('id="banAll"', '全选封禁', 'compact') + '</th><th>类型</th><th>值</th><th>原因</th><th>来源</th><th>封禁时间</th><th>解封时间</th><th></th></tr>' + rows
+        const emptyRow = '<tr class="tr"><td colspan="8" class="hint">暂无封禁条目</td></tr>'
+        $('banTable').innerHTML = '<tr><th>' + renderPick('id="banAll"', '全选封禁', 'compact') + '</th><th>类型</th><th>值</th><th>原因</th><th>来源</th><th>封禁时间</th><th>解封时间</th><th></th></tr>' + (rows || emptyRow)
+      }
+
+      const renderBanRulesText = (manualBans) => {
+        const list = Array.isArray(manualBans) ? manualBans : []
+        const ts = Date.now()
+        const lines = list
+          .slice()
+          .sort((a, b) => String(a.type + ':' + a.value).localeCompare(String(b.type + ':' + b.value)))
+          .map((b) => {
+            const prefix = b.type === 'domain' ? 'domain:' : 'ip:'
+            const v = String(b.value || '')
+            const createdAt = Number(b.createdAt || 0) || ts
+            const expiresAt = b.expiresAt != null ? Number(b.expiresAt || 0) || 0 : 0
+            const seconds = expiresAt > 0 ? Math.max(0, Math.floor((expiresAt - createdAt) / 1000)) : 0
+            return prefix + v + ' @' + String(seconds) + (b.reason ? ' # ' + String(b.reason) : '')
+          })
+        $('banRulesText').value = lines.join('\\n')
+      }
+
+      const getBansByView = (data) => {
+        const view = $('banView').value || 'all'
+        if (view === 'manual') return Array.isArray(data && data.manualBans) ? data.manualBans : (data && data.bans) || []
+        if (view === 'auto') return Array.isArray(data && data.autoBans) ? data.autoBans : []
+        return (data && data.bans) || []
+      }
+
+      const applyOverview = (data) => {
+        lastOverview = data || {}
+        $('banMsg').textContent = ''
+        renderBans(getBansByView(lastOverview))
+        renderBanRulesText(lastOverview.manualBans || [])
+        renderTopIp(lastOverview.topIps || [])
+        renderTopDomain(lastOverview.topDomains || [])
+        renderEvents(lastOverview.events || [])
+        renderTraffic(lastOverview.traffic || null)
+        fillSettings(lastOverview.settings)
+        $('footerText').value = String((lastOverview.site && lastOverview.site.footerText) || '')
+        $('footerFormat').value = String((lastOverview.site && lastOverview.site.footerFormat) || 'text')
+        $('siteTitle').value = String((lastOverview.site && lastOverview.site.title) || '')
+        $('siteDesc').value = String((lastOverview.site && lastOverview.site.description) || '')
+        $('faviconUrl').value = String((lastOverview.site && lastOverview.site.faviconUrl) || '')
+        $('logoUrl').value = String((lastOverview.site && lastOverview.site.logoUrl) || '')
+        $('annFormat').value = String((lastOverview.site && lastOverview.site.announcementFormat) || 'text')
+        const favUrl = $('faviconUrl').value.trim()
+        const logoUrl = $('logoUrl').value.trim()
+        $('faviconNow').src = cacheBust('/favicon')
+        $('logoNow').src = cacheBust('/logo')
+        $('faviconUrlPrev').src = favUrl || '/favicon'
+        $('logoUrlPrev').src = logoUrl || '/logo'
+        const annLines = (lastOverview.announcements || []).filter((a) => a.enabled).map((a) => a.text).join('\\n')
+        $('annText').value = annLines
       }
 
       const renderTopIp = (list) => {
@@ -1991,28 +2063,15 @@ const adminHtml = `<!doctype html>
       }
 
       const load = async () => {
-        const data = await api('/admin/api/overview')
-        renderBans(data.bans || [])
-        renderTopIp(data.topIps || [])
-        renderTopDomain(data.topDomains || [])
-        renderEvents(data.events || [])
-        renderTraffic(data.traffic || null)
-        fillSettings(data.settings)
-        $('footerText').value = String((data.site && data.site.footerText) || '')
-        $('footerFormat').value = String((data.site && data.site.footerFormat) || 'text')
-        $('siteTitle').value = String((data.site && data.site.title) || '')
-        $('siteDesc').value = String((data.site && data.site.description) || '')
-        $('faviconUrl').value = String((data.site && data.site.faviconUrl) || '')
-        $('logoUrl').value = String((data.site && data.site.logoUrl) || '')
-        $('annFormat').value = String((data.site && data.site.announcementFormat) || 'text')
-        const favUrl = $('faviconUrl').value.trim()
-        const logoUrl = $('logoUrl').value.trim()
-        $('faviconNow').src = cacheBust('/favicon')
-        $('logoNow').src = cacheBust('/logo')
-        $('faviconUrlPrev').src = favUrl || '/favicon'
-        $('logoUrlPrev').src = logoUrl || '/logo'
-        const annLines = (data.announcements || []).filter((a) => a.enabled).map((a) => a.text).join('\\n')
-        $('annText').value = annLines
+        try {
+          const data = await api('/admin/api/overview')
+          applyOverview(data || {})
+        } catch (e) {
+          $('banCount').textContent = '条目：0'
+          $('banTable').innerHTML = '<tr><th>' + renderPick('id="banAll"', '全选封禁', 'compact') + '</th><th>类型</th><th>值</th><th>原因</th><th>来源</th><th>封禁时间</th><th>解封时间</th><th></th></tr>' +
+            '<tr class="tr"><td colspan="8" class="hint"><span class="bad">ERR</span> 获取数据失败（/admin/api/overview）</td></tr>'
+          $('banMsg').textContent = ''
+        }
       }
 
       $('refresh').addEventListener('click', () => load().catch(() => {}))
@@ -2091,6 +2150,82 @@ const adminHtml = `<!doctype html>
         const list = checked.map((x) => ({ type: x.dataset.type === 'domain' ? 'domain' : 'ip', value: x.dataset.val }))
         await api('/admin/api/bans/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list }) })
         await load()
+      })
+
+      const parseBanRulesText = (text) => {
+        const lines = String(text || '').split(/\\r?\\n/g)
+        const out = []
+        const seen = new Set()
+        for (const rawLine of lines) {
+          let line = String(rawLine || '').trim()
+          if (!line) continue
+          if (line.startsWith('#')) continue
+          let reason = ''
+          const hash = line.indexOf('#')
+          if (hash >= 0) {
+            reason = line.slice(hash + 1).trim()
+            line = line.slice(0, hash).trim()
+          }
+          if (!line) continue
+          let type = 'ip'
+          let value = line
+          const m = line.match(/^(ip|domain)\\s*[:\\s]+(.+)$/i)
+          if (m) {
+            type = m[1].toLowerCase() === 'domain' ? 'domain' : 'ip'
+            value = m[2]
+          } else {
+            const v = String(value).trim()
+            if (/^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(v) || v.includes(':')) type = 'ip'
+            else type = 'domain'
+          }
+          value = String(value || '').trim()
+          let seconds = undefined
+          const atIdx = value.lastIndexOf('@')
+          if (atIdx > 0) {
+            const tail = value.slice(atIdx + 1).trim()
+            if (/^\\d+$/.test(tail)) {
+              seconds = Number(tail)
+              value = value.slice(0, atIdx).trim()
+            }
+          }
+          if (seconds == null) {
+            const parts = value.split(/\\s+/g).filter(Boolean)
+            if (parts.length >= 2) {
+              const s2 = parts[1].startsWith('@') ? parts[1].slice(1) : parts[1]
+              if (/^\\d+$/.test(s2)) seconds = Number(s2)
+              value = parts[0]
+            }
+          }
+          if (!value) continue
+          const key = type + ':' + value.toLowerCase()
+          if (seen.has(key)) continue
+          seen.add(key)
+          out.push({ type, value, reason: reason || undefined, seconds })
+          if (out.length >= 2000) break
+        }
+        return out
+      }
+
+      $('saveBanRules').addEventListener('click', async () => {
+        $('banRulesMsg').textContent = ''
+        const list = parseBanRulesText($('banRulesText').value)
+        try {
+          const res = await api('/admin/api/bans/manual/set', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list }) })
+          if (res && res.ok) {
+            $('banRulesMsg').innerHTML = '<span class="ok">OK</span> 已保存：' + esc(String(res.count || list.length))
+            await load()
+          } else {
+            $('banRulesMsg').innerHTML = '<span class="bad">ERR</span> 保存失败'
+          }
+        } catch (e) {
+          $('banRulesMsg').innerHTML = '<span class="bad">ERR</span> 保存失败'
+        }
+      })
+
+      $('banView').addEventListener('change', () => {
+        const v = $('banView').value || 'all'
+        setBanView(v)
+        if (lastOverview) renderBans(getBansByView(lastOverview))
       })
 
       $('topIp').addEventListener('click', async (e) => {
@@ -2286,6 +2421,7 @@ const adminHtml = `<!doctype html>
       bindAsset('favicon')
       bindAsset('logo')
 
+      $('banView').value = getBanView()
       const lastTab = (() => { try { return localStorage.getItem('jsd_admin_tab') || '' } catch { return '' } })()
       setTab(lastTab || 'security')
       bindVersion()
@@ -2718,6 +2854,18 @@ export const createNodeApp = (deps: { adminStore: AdminDbStore; auth: AuthDb }) 
     const list = Array.isArray(data.list) ? data.list : []
     const res = await adminStore.removeBans(list)
     return c.json({ ok: true, deleted: res.deleted })
+  })
+
+  app.post('/admin/api/bans/manual/set', async (c: Context) => {
+    await auth.init()
+    if (!(await isAuthedAdmin(c))) return c.json({ error: 'unauthorized' }, 401)
+    if (!requireCsrf(c.req.raw)) return c.json({ error: 'csrf' }, 403)
+    await adminStore.init()
+    const data = await c.req.json().catch(() => ({} as any))
+    const list = Array.isArray(data.list) ? data.list : []
+    const res = await adminStore.setManualBans(list)
+    if (!res.ok) return c.json({ error: res.error }, 400)
+    return c.json({ ok: true, count: res.count })
   })
 
   app.post('/admin/api/top/clear', async (c: Context) => {

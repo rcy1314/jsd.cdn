@@ -107,6 +107,27 @@ const isLoopbackIp = (ip: string) => {
   return false
 }
 
+const isPrivateIp = (ip: string) => {
+  const v = normalizeIp(ip).toLowerCase()
+  if (!v) return false
+  if (isLoopbackIp(v)) return true
+  if (v.includes(':')) {
+    if (v.startsWith('fe80:')) return true
+    if (v.startsWith('fc') || v.startsWith('fd')) return true
+    if (v === '::') return true
+    return false
+  }
+  const parts = v.split('.').map((x) => Number(x))
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) return false
+  const [a, b] = parts
+  if (a === 10) return true
+  if (a === 192 && b === 168) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 169 && b === 254) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+  return false
+}
+
 const isLocalDomain = (domain: string) => {
   const d = String(domain ?? '').trim().toLowerCase()
   if (!d) return false
@@ -151,9 +172,70 @@ const INSTANT_BAN_PATHS = [
   '/.ssh',
   '/.aws',
   '/.docker',
+  '/dockerfile',
+  '/docker-compose',
+  '/wrangler.toml',
+  '/package.json',
+  '/package-lock.json',
+  '/pnpm-lock.yaml',
+  '/yarn.lock',
+  '/bun.lockb',
+  '/tsconfig.json',
+  '/deno.json',
+  '/deno.jsonc',
+  '/composer.json',
+  '/composer.lock',
+  '/node_modules',
+  '/src',
+  '/dist',
+  '/data',
   '/etc/passwd',
   '/etc/shadow',
   '/proc/self',
+  '/wp-admin',
+  '/wp-login.php',
+  '/xmlrpc.php',
+  '/phpmyadmin',
+  '/adminer',
+  '/vendor',
+  '/cgi-bin/',
+  '/boaform',
+  '/hnap1/',
+]
+
+const PROBE_KEYWORDS = [
+  'wordpress_probe',
+  'php_scan',
+  'php_admin_probe',
+  'env_probe',
+  'repo_probe',
+  'vendor_probe',
+  'system_probe',
+  'joomla_probe',
+  'drupal_probe',
+  'thinkphp_probe',
+  'laravel_probe',
+  'phpunit_probe',
+  'path_traversal_probe',
+  'sqli_probe',
+  'xss_probe',
+  'php_payload_probe',
+  'sa_probe_',
+]
+
+const PROBE_REGEX_RULES: { id: string; re: RegExp }[] = [
+  { id: 'wp_login_php', re: /\/wp-login\.php(?:$|\/)/i },
+  { id: 'xmlrpc_php', re: /\/xmlrpc\.php(?:$|\/)/i },
+  { id: 'phpmyadmin', re: /\/phpmyadmin(?:$|\/)/i },
+  { id: 'adminer', re: /\/adminer(?:$|\/)/i },
+  { id: 'any_php', re: /\.php(?:$|\/)/i },
+  { id: 'env_file', re: /\.env(?:$|[.\/_-])/i },
+  { id: 'git_dir', re: /\.git(?:\/|$)/i },
+  { id: 'vendor_dir', re: /\/vendor(?:\/|$)/i },
+  { id: 'cgi_bin', re: /\/cgi-bin\//i },
+  { id: 'boaform', re: /\/boaform(?:$|\/)/i },
+  { id: 'hnap1', re: /\/hnap1\/?/i },
+  { id: 'path_traversal', re: /(\.\.\/|\.\.\\|%2e%2e%2f|%2e%2e%5c|%5c\.\.%5c)/i },
 ]
 
 // 通用恶意扫描路径：累计命中达阈值后封禁
@@ -210,6 +292,27 @@ const SCAN_PATHS = [
   '/owa/',
   '/ecp/',
   '/ews/',
+  '/adminer',
+  '/vendor',
+  '/boaform',
+  '/hnap1/',
+  '/wordpress_probe',
+  '/php_scan',
+  '/php_admin_probe',
+  '/env_probe',
+  '/repo_probe',
+  '/vendor_probe',
+  '/system_probe',
+  '/joomla_probe',
+  '/drupal_probe',
+  '/thinkphp_probe',
+  '/laravel_probe',
+  '/phpunit_probe',
+  '/path_traversal_probe',
+  '/sqli_probe',
+  '/xss_probe',
+  '/php_payload_probe',
+  '/sa_probe_',
 ]
 
 export class AdminDbStore {
@@ -459,7 +562,7 @@ export class AdminDbStore {
     const row = this.getSettingsRow()
     return {
       enabled: !!row?.enabled,
-      banSeconds: clamp(Number(row?.ban_seconds ?? 3600), 60, 60 * 60 * 24 * 30),
+      banSeconds: clamp(Number(row?.ban_seconds ?? 7200), 60 * 60 * 2, 60 * 60 * 24 * 2),
       rate: {
         enabled: !!row?.rate_enabled,
         windowSeconds: clamp(Number(row?.rate_window_seconds ?? 60), 10, 3600),
@@ -878,13 +981,28 @@ export class AdminDbStore {
   }
 
   getEvents(limit = 120) {
-    const inMem = this.events.slice(-limit)
-    if (inMem.length >= Math.min(limit, 60)) return inMem
+    const denyKinds = new Set(['auto_ban', 'login_fail', 'settings_update', 'announcement_update'])
+    const sanitize = (e: SecurityEvent) => {
+      if (denyKinds.has(String(e.kind))) return null
+      const ip = e.ip ? normalizeIp(e.ip) : ''
+      const nextIp = ip && isPrivateIp(ip) ? undefined : ip || undefined
+      return { ...e, ip: nextIp }
+    }
+
+    const inMemRaw = this.events.slice(-limit)
+    if (inMemRaw.length >= Math.min(limit, 60)) {
+      const out: SecurityEvent[] = []
+      for (const e of inMemRaw) {
+        const v = sanitize(e)
+        if (v) out.push(v)
+      }
+      return out
+    }
+
     const rows = this.db.prepare('SELECT id, ts, kind, ip, domain, path, detail FROM security_events ORDER BY ts DESC LIMIT ?').all(limit) as any[]
-    return rows
-      .slice()
-      .reverse()
-      .map((r) => ({
+    const out: SecurityEvent[] = []
+    for (const r of rows.slice().reverse()) {
+      const v = sanitize({
         id: typeof r.id === 'number' ? r.id : Number(r.id) || undefined,
         ts: Number(r.ts) || now(),
         kind: String(r.kind) as any,
@@ -892,8 +1010,10 @@ export class AdminDbStore {
         domain: r.domain != null ? String(r.domain) : undefined,
         path: r.path != null ? String(r.path) : undefined,
         detail: r.detail != null ? String(r.detail) : undefined
-      }))
-      .filter((e) => e.kind !== 'auto_ban')
+      })
+      if (v) out.push(v)
+    }
+    return out
   }
 
   async deleteEvents(ids: number[]) {
@@ -1022,7 +1142,9 @@ export class AdminDbStore {
     const merged: SecuritySettings = {
       enabled: next.enabled != null ? !!next.enabled : cur.enabled,
       banSeconds:
-        next.banSeconds != null ? clamp(Number(next.banSeconds), 60, 60 * 60 * 24 * 30) : clamp(cur.banSeconds, 60, 60 * 60 * 24 * 30),
+        next.banSeconds != null
+          ? clamp(Number(next.banSeconds), 60 * 60 * 2, 60 * 60 * 24 * 2)
+          : clamp(cur.banSeconds, 60 * 60 * 2, 60 * 60 * 24 * 2),
       rate: {
         enabled: next.rate?.enabled != null ? !!next.rate.enabled : cur.rate.enabled,
         windowSeconds: next.rate?.windowSeconds != null ? clamp(Number(next.rate.windowSeconds), 10, 3600) : cur.rate.windowSeconds,
@@ -1209,6 +1331,75 @@ export class AdminDbStore {
     return { ok: true as const, entry }
   }
 
+  async setManualBans(list: { type: BanType; value: string; reason?: string; seconds?: number }[]) {
+    await this.init()
+    const rawList = Array.isArray(list) ? list : []
+    const merged = new Map<string, { type: BanType; value: string; reason?: string; seconds?: number }>()
+    for (const it of rawList) {
+      const type: BanType = it?.type === 'domain' ? 'domain' : 'ip'
+      const rawValue = String(it?.value ?? '').trim()
+      const value = type === 'ip' ? normalizeIp(rawValue).toLowerCase() : rawValue.toLowerCase()
+      if (!value) continue
+      if (type === 'ip' && !isProbablyIp(value)) return { ok: false as const, error: 'invalid_ip' as const }
+      if (type === 'domain' && !isProbablyDomain(value)) return { ok: false as const, error: 'invalid_domain' as const }
+      const reason = typeof it?.reason === 'string' ? it.reason.trim() : ''
+      const secondsRaw = typeof it?.seconds === 'number' ? it.seconds : undefined
+      const seconds = typeof secondsRaw === 'number' && Number.isFinite(secondsRaw) && secondsRaw >= 0 ? secondsRaw : undefined
+      merged.set(`${type}:${value}`, { type, value, reason: reason || undefined, seconds })
+      if (merged.size >= 2000) break
+    }
+    const desired = Array.from(merged.values())
+
+    const existingMap = new Map<string, { createdAt: number; expiresAt?: number }>()
+    try {
+      const rows = this.db.prepare('SELECT type, value, created_at, expires_at FROM bans WHERE created_by=?').all('manual') as any[]
+      for (const r of rows) {
+        const type: BanType = r.type === 'domain' ? 'domain' : 'ip'
+        const raw = String(r.value ?? '')
+        const value = type === 'ip' ? normalizeIp(raw).toLowerCase() : raw.trim().toLowerCase()
+        if (!value) continue
+        const createdAt = toEpochMs(Number(r.created_at) || 0) || now()
+        const expiresAt =
+          r.expires_at != null ? (toExpiresAtMs(Number(r.expires_at) || 0, createdAt) || toEpochMs(Number(r.expires_at) || 0) || Number(r.expires_at) || 0) : 0
+        existingMap.set(`${type}:${value}`, { createdAt, expiresAt: expiresAt > 0 ? expiresAt : undefined })
+      }
+    } catch {}
+
+    try {
+      this.db.prepare('DELETE FROM bans WHERE created_by=?').run('manual')
+    } catch {
+      return { ok: false as const, error: 'db_error' as const }
+    }
+
+    const upsert = this.db.prepare(
+      'INSERT INTO bans (type, value, reason, created_at, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(type, value) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at, created_by=excluded.created_by, expires_at=excluded.expires_at'
+    )
+    const ts = now()
+    try {
+      for (const b of desired) {
+        const ex = existingMap.get(`${b.type}:${b.value}`)
+        const hasSeconds = typeof b.seconds === 'number'
+        const createdAt = hasSeconds ? ts : ex?.createdAt ?? ts
+        let expiresAt: number | null = ex?.expiresAt ?? null
+        if (hasSeconds) {
+          const s = Number(b.seconds || 0) || 0
+          if (s > 0) {
+            const clamped = clamp(Math.floor(s), 60, 60 * 60 * 24 * 30)
+            expiresAt = ts + clamped * 1000
+          } else {
+            expiresAt = null
+          }
+        }
+        upsert.run(b.type, b.value, b.reason ?? null, createdAt, 'manual', expiresAt)
+      }
+    } catch {
+      return { ok: false as const, error: 'db_error' as const }
+    }
+
+    this.pushEvent({ ts, kind: 'settings_update', detail: `manual_bans_set:${desired.length}` })
+    return { ok: true as const, count: desired.length }
+  }
+
   async removeBan(type: BanType, value: string) {
     await this.init()
     const raw = String(value ?? '').trim()
@@ -1271,6 +1462,22 @@ export class AdminDbStore {
       const instantList =
         String(settings.banRules?.instantPaths ?? '').trim() !== '' ? parsePathPrefixList(settings.banRules.instantPaths) : INSTANT_BAN_PATHS
       const scanList = String(settings.banRules?.scanPaths ?? '').trim() !== '' ? parsePathPrefixList(settings.banRules.scanPaths) : SCAN_PATHS
+
+      const probeKeyword = PROBE_KEYWORDS.find((k) => lowered.includes(k))
+      if (probeKeyword) {
+        this.addBanImmediate({ type: 'ip', value: ip, reason: `probe:${probeKeyword}`, seconds: settings.banSeconds, createdBy: 'auto' })
+        this.pushBlockedEvent({ ts, kind: 'blocked', ip, domain, path, detail: `auto_probe:${probeKeyword}` })
+        return { blocked: true as const, reason: 'scan_detected' }
+      }
+
+      for (const rule of PROBE_REGEX_RULES) {
+        try {
+          if (!rule.re.test(lowered)) continue
+          this.addBanImmediate({ type: 'ip', value: ip, reason: `probe:${rule.id}`, seconds: settings.banSeconds, createdBy: 'auto' })
+          this.pushBlockedEvent({ ts, kind: 'blocked', ip, domain, path, detail: `auto_probe:${rule.id}` })
+          return { blocked: true as const, reason: 'scan_detected' }
+        } catch {}
+      }
 
       // 高危路径：单次命中立即封禁
       const instantHit = instantList.some((p) => lowered.startsWith(p))
@@ -1447,6 +1654,8 @@ export class AdminDbStore {
       if (!mergedMap.has(k)) mergedMap.set(k, b)
     }
     const bans = Array.from(mergedMap.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    const manualBans = bans.filter((b) => b.createdBy === 'manual')
+    const autoBans = bans.filter((b) => b.createdBy === 'auto')
     const announcements = this.getAnnouncements()
     const events = this.getEvents(120)
     const topIps = Array.from(this.ipStats.entries())
@@ -1460,6 +1669,6 @@ export class AdminDbStore {
       .sort((a, b) => b.requests - a.requests)
       .slice(0, 50)
     const traffic = this.getTraffic()
-    return { settings, site, bans, announcements, events, topIps, topDomains, traffic }
+    return { settings, site, bans, manualBans, autoBans, announcements, events, topIps, topDomains, traffic }
   }
 }

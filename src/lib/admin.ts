@@ -94,7 +94,7 @@ type DomainTrafficStat = {
 
 const DEFAULT_SETTINGS: SecuritySettings = {
   enabled: true,
-  banSeconds: 3600,
+  banSeconds: 7200,
   rate: { enabled: true, windowSeconds: 60, maxRequests: 240 },
   scan: { enabled: true, windowSeconds: 60, maxHits: 8 },
   banRules: { instantPaths: '', scanPaths: '' },
@@ -399,7 +399,7 @@ const normalizePersisted = (raw: any): PersistedState => {
   const settings = raw.settings && typeof raw.settings === 'object' ? raw.settings : DEFAULT_SETTINGS
   const mergedSettings: SecuritySettings = {
     enabled: !!settings.enabled,
-    banSeconds: clamp(Number(settings.banSeconds ?? DEFAULT_SETTINGS.banSeconds), 60, 60 * 60 * 24 * 30),
+    banSeconds: clamp(Number(settings.banSeconds ?? DEFAULT_SETTINGS.banSeconds), 60 * 60 * 2, 60 * 60 * 24 * 2),
     rate: {
       enabled: !!settings.rate?.enabled,
       windowSeconds: clamp(Number(settings.rate?.windowSeconds ?? DEFAULT_SETTINGS.rate.windowSeconds), 10, 3600),
@@ -908,7 +908,9 @@ export class AdminStore {
     const merged: SecuritySettings = {
       enabled: next.enabled != null ? !!next.enabled : cur.enabled,
       banSeconds:
-        next.banSeconds != null ? clamp(Number(next.banSeconds), 60, 60 * 60 * 24 * 30) : clamp(cur.banSeconds, 60, 60 * 60 * 24 * 30),
+        next.banSeconds != null
+          ? clamp(Number(next.banSeconds), 60 * 60 * 2, 60 * 60 * 24 * 2)
+          : clamp(cur.banSeconds, 60 * 60 * 2, 60 * 60 * 24 * 2),
       rate: {
         enabled: next.rate?.enabled != null ? !!next.rate.enabled : cur.rate.enabled,
         windowSeconds:

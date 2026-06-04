@@ -99,7 +99,7 @@ const migrate = (db: any) => {
       ref_window_seconds,
       ref_max_requests,
       registration_enabled
-    ) VALUES (1, 1, 3600, 1, 60, 240, 1, 60, 8, 1, 60, 180, 0);
+    ) VALUES (1, 1, 7200, 1, 60, 240, 1, 60, 8, 1, 60, 180, 0);
 
     CREATE TABLE IF NOT EXISTS site_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
